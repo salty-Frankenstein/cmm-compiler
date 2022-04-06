@@ -1,17 +1,18 @@
-struct SymbolTableEntry {
-    char* name;
+typedef union Type {
+    enum PrimTypeTag primitive;
+    // TODO: 
+} Type;
 
-};
+typedef struct SymbolTableEntry {
+    char* name;
+    Type* type;
+} SymbolTableEntry;
 
 struct SymbolTableNode {
-    struct SymbolTableEntry content;
+    struct SymbolTableEntry* content;
     struct SymbolTableNode* next;
 };
 
-struct SymbolTable {
-    struct SymbolTableNode* table;
-};
+typedef struct SymbolTableNode* SymbolTable;
 
-typedef struct SymbolTable SymbolTable;
-
-struct SymbolTable* getSymbleTable(Node* parseTree);
+SymbolTable getSymbleTable(Node* parseTree);

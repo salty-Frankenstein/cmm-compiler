@@ -9,10 +9,6 @@
 #include <stdarg.h>
 #include "parser.h"
 
-#define NEW(varType, varName) \
-  struct varType* varName = (struct varType*)malloc(sizeof(struct varType));
-#define NEW_ARRAY(varType, varName, size) struct varType* varName = (struct varType*)malloc(size * sizeof(struct varType));
-
 int errorType = 0;
 
 #define CONS_TOKEN(consName, vtag, contentType, contentField) \

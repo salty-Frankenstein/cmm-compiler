@@ -3,8 +3,13 @@
 
 #include "syntax.tab.h"
 
+#define NEW(varType, varName) \
+  struct varType* varName = (struct varType*)malloc(sizeof(struct varType));
+#define NEW_ARRAY(varType, varName, size) struct varType* varName = (struct varType*)malloc(size * sizeof(struct varType));
+
 extern int errorType;
 
+enum PrimTypeTag { T_INT, T_FLOAT };
 enum RelOpTag { LT, LE, GT, GE, EQ, NE };
 /* Tokens */
 struct Token {
