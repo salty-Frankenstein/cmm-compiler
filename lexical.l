@@ -1,16 +1,7 @@
 %{
 #include "syntax.tab.h"
 #include <string.h>
-struct Token;
-enum RelOpTag { LT, LE, GT, GE, EQ, NE };
-extern int errorType;
-struct Node* makeTokenNode(struct Token*);
-struct Token* makeIntLit(int);
-struct Token* makeFloatLit(float);
-struct Token* makeID(char*);
-struct Token* makeType(char*);
-struct Token* makeRelOp(enum RelOpTag);
-struct Token* makeToken(YYTOKENTYPE);
+#include "parser.h"
 
 int yycolumn = 1;
 #define YY_USER_ACTION \

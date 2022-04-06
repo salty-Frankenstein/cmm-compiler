@@ -1,9 +1,9 @@
 #include<stdio.h>
 #include<stdlib.h>
 #include "syntax.tab.h"
+#include "parser.h"
 
 extern FILE* yyin;
-extern int errorType;
 
 int main(int argc, char** argv) {
     if (argc <= 1) { return 1; }
