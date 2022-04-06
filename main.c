@@ -2,6 +2,7 @@
 #include<stdlib.h>
 #include "syntax.tab.h"
 #include "parser.h"
+#include "semantics.h"
 
 extern FILE* yyin;
 
@@ -13,10 +14,11 @@ int main(int argc, char** argv) {
         return 1;
     }
     yyrestart(f);
-    struct Node *root;
+    Node *root;
     yyparse(&root);
     if(errorType == 0) {
         printParseTree(root, 0);
+        getSymbleTable(root);
     }
     return 0;
 }

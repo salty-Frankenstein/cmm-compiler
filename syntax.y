@@ -7,27 +7,16 @@
 #include <memory.h>
 #include <assert.h>
 #include <stdarg.h>
+#include "parser.h"
 
 #define NEW(varType, varName) \
   struct varType* varName = (struct varType*)malloc(sizeof(struct varType));
 #define NEW_ARRAY(varType, varName, size) struct varType* varName = (struct varType*)malloc(size * sizeof(struct varType));
 
 int errorType = 0;
-enum RelOpTag;
-
-/* Tokens */
-struct Token {
-  enum yytokentype tag;
-  union {
-    int intLit;           // for INT
-    float floatLit;       // for FLOAT
-    char* reprS;          // for ID and TYPE
-    enum RelOpTag relOp;  // for RELOP
-  } content;
-};
 
 #define CONS_TOKEN(consName, vtag, contentType, contentField) \
-  struct Token* consName(contentType i){\
+  Token* consName(contentType i){\
     NEW(Token, p)\
     p->tag = vtag;\
     p->content.contentField = i;\
@@ -39,42 +28,20 @@ CONS_TOKEN(makeFloatLit, FLOAT, float, floatLit)
 CONS_TOKEN(makeID, ID, char*, reprS)
 CONS_TOKEN(makeType, TYPE, char*, reprS)
 CONS_TOKEN(makeRelOp, RELOP, enum RelOpTag, relOp)
-struct Token* makeToken(enum yytokentype tag) {
+Token* makeToken(enum yytokentype tag) {
   NEW(Token, p);
   p->tag = tag;
   return p;
 }
 
-/* Parse Tree Node */
-enum NodeTag { TOKEN, 
-  Program, ExtDefList, ExtDef, ExtDecList,  // High-level Definitions
-  Specifier, StructSpecifier, OptTag, Tag,  // Specifiers
-  VarDec, FunDec, VarList, ParamDec,        // Declarators
-  CompSt, StmtList, Stmt,                   // Statements
-  DefList, Def, DecList, Dec,               // Local Definitions
-  Exp, Args                                 // Expressions
-};
-
-struct Node {
-  enum NodeTag tag;
-  union {
-    struct Token* terminal;
-    struct { 
-      int childNum; 
-      struct Node** child; 
-      int column;
-    } nonterminal;  // array of child nodes
-  } content;
-};
-
-struct Node* makeTokenNode(struct Token* token) {
+Node* makeTokenNode(Token* token) {
   NEW(Node, p);
   p->tag = TOKEN;
   p->content.terminal = token;
   return p;
 }
 
-struct Node* makeNonterminalNode(int column, enum NodeTag tag, int childNum, ...) {
+Node* makeNonterminalNode(int column, enum NodeTag tag, int childNum, ...) {
   assert(tag != TOKEN);
   NEW(Node, p);
   p->tag = tag;
@@ -87,7 +54,7 @@ struct Node* makeNonterminalNode(int column, enum NodeTag tag, int childNum, ...
   NEW_ARRAY(Node*, pa, childNum);
   int i;
   for(i = 0; i < childNum; i++) {
-    pa[i] = va_arg(valist, struct Node*);
+    pa[i] = va_arg(valist, Node*);
   }
   p->content.nonterminal.child = pa;
   return p;
@@ -101,9 +68,9 @@ void printIndent(int indent) {
   }
 }
 
-void printParseTree(struct Node* root, int indent);
+void printParseTree(Node* root, int indent);
 #define PRINT_TOKEN(tag) case tag: printf(#tag"\n"); break;
-void printToken(struct Token* token, int indent) {
+void printToken(Token* token, int indent) {
   printIndent(indent);
 
   switch (token->tag) {
@@ -123,7 +90,7 @@ void printToken(struct Token* token, int indent) {
 
 #define PRINT_NONTERM(tag) \
   case tag: printf(#tag" (%d)\n", root->content.nonterminal.column); break;
-void printNonterminal(struct Node* root, int indent) {
+void printNonterminal(Node* root, int indent) {
   printIndent(indent);
   assert(root->tag != TOKEN);
   switch (root->tag) {
@@ -143,7 +110,7 @@ void printNonterminal(struct Node* root, int indent) {
   }
 }
 
-void printParseTree(struct Node* root, int indent) {
+void printParseTree(Node* root, int indent) {
   if (root->tag == TOKEN) {
     printToken(root->content.terminal, indent);
   }
@@ -287,7 +254,7 @@ Args : Exp COMMA Args { $$ = makeNonterminalNode(@1.first_line, Args, 3, $1, $2,
   ;
 
 %%
-yyerror(struct Node* _, char* msg) {
+yyerror(Node* _, char* msg) {
   if(errorType != 1) {  // ignore type A error here
     printf("Error Type B at Line %d\n", yylineno);
     // printf("Error type B at Line %d:%s\n", yylineno, msg);
