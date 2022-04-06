@@ -120,10 +120,13 @@ blank " "|\t|\r
   return NOT;
 }
 
-int|float {
-  char* p = (char*)malloc(10);
-  strcpy(p, yytext);
-  yylval = makeTokenNode(makeType(p));
+int {
+  yylval = makeTokenNode(makeType(T_INT));
+  return TYPE;
+}
+
+float {
+  yylval = makeTokenNode(makeType(T_FLOAT));
   return TYPE;
 }
 

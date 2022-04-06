@@ -15,10 +15,11 @@ enum RelOpTag { LT, LE, GT, GE, EQ, NE };
 struct Token {
   enum yytokentype tag;
   union {
-    int intLit;           // for INT
-    float floatLit;       // for FLOAT
-    char* reprS;          // for ID and TYPE
-    enum RelOpTag relOp;  // for RELOP
+    int intLit;             // for INT
+    float floatLit;         // for FLOAT
+    char* reprS;            // for ID 
+    enum PrimTypeTag pType; // for TYPE
+    enum RelOpTag relOp;    // for RELOP
   } content;
 };
 typedef struct Token Token;
@@ -51,7 +52,7 @@ struct Node* makeTokenNode(struct Token*);
 struct Token* makeIntLit(int);
 struct Token* makeFloatLit(float);
 struct Token* makeID(char*);
-struct Token* makeType(char*);
+struct Token* makeType(enum PrimTypeTag);
 struct Token* makeRelOp(enum RelOpTag);
 struct Token* makeToken(YYTOKENTYPE);
 void printParseTree(struct Node* root, int indent);

@@ -22,7 +22,7 @@ int errorType = 0;
 CONS_TOKEN(makeIntLit, INT, int, intLit)
 CONS_TOKEN(makeFloatLit, FLOAT, float, floatLit)
 CONS_TOKEN(makeID, ID, char*, reprS)
-CONS_TOKEN(makeType, TYPE, char*, reprS)
+CONS_TOKEN(makeType, TYPE, enum PrimTypeTag, pType)
 CONS_TOKEN(makeRelOp, RELOP, enum RelOpTag, relOp)
 Token* makeToken(enum yytokentype tag) {
   NEW(Token, p);
@@ -73,7 +73,10 @@ void printToken(Token* token, int indent) {
   case INT: printf("INT: %d\n", token->content.intLit); break;
   case FLOAT: printf("FLOAT: %f\n", token->content.floatLit); break;
   case ID: printf("ID: "); printf("%s\n", token->content.reprS); break;
-  case TYPE: printf("TYPE: "); printf("%s\n", token->content.reprS); break;
+  case TYPE: 
+    if(token->content.pType == T_INT) { printf("int\n"); }
+    else { printf("float\n"); }
+    break;
   PRINT_TOKEN(SEMI)  PRINT_TOKEN(COMMA) PRINT_TOKEN(ASSIGNOP)  PRINT_TOKEN(RELOP) 
   PRINT_TOKEN(PLUS)  PRINT_TOKEN(MINUS) PRINT_TOKEN(STAR)      PRINT_TOKEN(DIV)
   PRINT_TOKEN(AND)   PRINT_TOKEN(OR)    PRINT_TOKEN(DOT)       PRINT_TOKEN(NOT)
