@@ -1,6 +1,8 @@
 #ifndef PARSER_H
 #define PARSER_H
 
+#include "syntax.tab.h"
+
 extern int errorType;
 
 enum RelOpTag { LT, LE, GT, GE, EQ, NE };
