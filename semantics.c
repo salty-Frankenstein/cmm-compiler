@@ -211,8 +211,8 @@ RecordField* ExtDecListHandler(Node* root, Type* inputType) {
         x->next = xs;
         return x;
     }
-    CATCH_ALL
-        return NULL;
+    CATCH_ALL;
+    return NULL;
 }
 
 Type* SpecifierHandler(Node* root, SymbolTable* table) {
@@ -227,8 +227,8 @@ Type* SpecifierHandler(Node* root, SymbolTable* table) {
         assert(child->tag == StructSpecifier);
         return StructSpecifierHandler(child, table);
     }
-    CATCH_ALL
-        return NULL;
+    CATCH_ALL;
+    return NULL;
 }
 
 // bool cmpStructTag(SymbolTableEntry* obj, SymbolTableEntry* sbj) {
@@ -259,11 +259,12 @@ Type* StructSpecifierHandler(Node* root, SymbolTable* table) {
     if (PATTERN2(root, _, Tag)) {
         // using defined structure
         tag = GET_CHILD(root, 1);
-        assert(tag->content.terminal->tag == ID);
+        Node* id = GET_CHILD(tag, 0);
+        assert(id->tag == TOKEN);
         // lookup the tag in the table
         for (p = *table; p != NULL; p = p->next) {
             if (p->content->tag != S_STRUCT) { continue; }
-            if (strcmp(GET_TERMINAL(tag, reprS),
+            if (strcmp(GET_TERMINAL(id, reprS),
                 p->content->content.structDef.name) == 0) {
                 // defined entry found, return a COPY type
                 return cloneType(p->content->content.structDef.type);

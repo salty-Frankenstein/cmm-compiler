@@ -3,3 +3,9 @@ struct Node {
   float b[2][3];
   struct { int i; } k[5];
 };
+
+struct Node a;
+
+struct Node {
+  int b;
+};
