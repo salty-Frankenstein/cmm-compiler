@@ -9,6 +9,7 @@ typedef int bool;
 #define false 0;
 
 #define _ TOKEN
+#define CATCH_ALL else { assert(0); }
 #define _PATTERN2(root, tag0, tag1) \
     GET_CHILD(root, 0)->tag == tag0 \
     && GET_CHILD(root, 1)->tag == tag1 
@@ -91,12 +92,12 @@ Type* cloneType(Type* t) {
         res->content.array->type = cloneType(t->content.array->type);
         break;
     default:
+        printf("<%d>\n", t->tag);
+        fflush(stdout);
         assert(0);
     }
     return res;
 }
-
-
 
 /* delete a type and all nested types */
 void deleteType(Type* t) {
@@ -165,117 +166,61 @@ void ExtDefHandler(Node* root, SymbolTable* table) {
     Node* specifier, * extDecList;
     Type* t;
     RecordField* l;
-    printf("<%d>\n",root->content.nonterminal.childNum);
-    fflush(stdout);
-    if(PATTERN3(root, Specifier, ExtDecList, TOKEN)) { // ExtDef -> Specifier ExtDecList
+    if (PATTERN3(root, Specifier, ExtDecList, _)) { // ExtDef -> Specifier ExtDecList SEMI
         specifier = GET_CHILD(root, 0);
         extDecList = GET_CHILD(root, 1);
-        SpecifierHandler(specifier, table);
-        assert(extDecList->tag == TOKEN);
+        t = SpecifierHandler(specifier, table);
         l = ExtDecListHandler(extDecList, t);
         // add all definitions in the list
         for (;l != NULL; l = l->next) {
             addEntry(table, makeVarEntry(l->name, l->type));
         }
     }
-    else if(PATTERN2(root, Specifier, TOKEN)) { // ExtDef -> Specifier SEMI
+    else if (PATTERN2(root, Specifier, _)) { // ExtDef -> Specifier SEMI
         specifier = GET_CHILD(root, 0);
         // side effect here, add entry if it is a struct def
         SpecifierHandler(specifier, table);
     }
-    else if(PATTERN3(root, Specifier, FunDec, CompSt)) { // ExtDef -> Specifier FuncDec CompSt
+    else if (PATTERN3(root, Specifier, FunDec, CompSt)) { // ExtDef -> Specifier FuncDec CompSt
         // TODO
     }
-    else {
-        assert(0);
-    }
-    // switch (root->content.nonterminal.childNum) {
-    // case 1:     // ExtDef -> Specifier
-    //     specifier = GET_CHILD(root, 0);
-    //     // side effect here, add entry if it is a struct def
-    //     SpecifierHandler(specifier, table);
-    // case 2:     // ExtDef -> Specifier ExtDecList
-    //     specifier = GET_CHILD(root, 0);
-    //     extDecList = GET_CHILD(root, 1);
-    //     SpecifierHandler(specifier, table);
-    //     assert(extDecList->tag == TOKEN);
-    //     l = ExtDecListHandler(extDecList, t);
-    //     // add all definitions in the list
-    //     for (;l != NULL; l = l->next) {
-    //         addEntry(table, makeVarEntry(l->name, l->type));
-    //     }
-    //     break;
-    // case 3:     // ExtDef -> Specifier FuncDec CompSt
-    //     // TODO
-    //     assert(0);
-    //     break;
-    // default:
-    //     break;
-    // }
-
+    CATCH_ALL
 }
 
 RecordField* ExtDecListHandler(Node* root, Type* inputType) {
     assert(root->tag == ExtDecList);
     Node* varDec, * extDecList;
     RecordField* x, * xs;
-    if(PATTERN(root, VarDec)) {
+    if (PATTERN(root, VarDec)) {
         varDec = GET_CHILD(root, 0);
         return VarDecHandler(varDec, cloneType(inputType));
     }
-    else if(PATTERN3(root, VarDec, TOKEN, ExtDecList)) {
+    else if (PATTERN3(root, VarDec, TOKEN, ExtDecList)) {
         varDec = GET_CHILD(root, 0);
-        extDecList = GET_CHILD(root, 1);
+        extDecList = GET_CHILD(root, 2);
         x = VarDecHandler(varDec, cloneType(inputType));
         xs = ExtDecListHandler(extDecList, inputType);
         x->next = xs;
         return x;
     }
-    else {
-        assert(0);
-    }
-    // switch (root->content.nonterminal.childNum) {
-    // case 1:
-    //     varDec = GET_CHILD(root, 0);
-    //     return VarDecHandler(varDec, cloneType(inputType));
-    // case 2:
-    //     varDec = GET_CHILD(root, 0);
-    //     extDecList = GET_CHILD(root, 1);
-    //     x = VarDecHandler(varDec, cloneType(inputType));
-    //     xs = ExtDecListHandler(extDecList, inputType);
-    //     x->next = xs;
-    //     return x;
-    // default:
-    //     assert(0);
-    // }
-    return NULL;
+    CATCH_ALL
+        return NULL;
 }
 
 Type* SpecifierHandler(Node* root, SymbolTable* table) {
     assert(root->tag == Specifier);
     assert(root->content.nonterminal.childNum == 1);
     Node* child = GET_CHILD(root, 0);
-    if(PATTERN(root, TOKEN)) {   // Specifier -> TYPE
+    if (PATTERN(root, TOKEN)) {   // Specifier -> TYPE
         assert(child->content.terminal->tag == TYPE);
         return makePrimitiveType(child->content.terminal->content.pType);
     }
-    else if(PATTERN(root, StructSpecifier)) {
+    else if (PATTERN(root, StructSpecifier)) {
         assert(child->tag == StructSpecifier);
         return StructSpecifierHandler(child, table);
     }
-    else {
-        assert(0);
-    }
-    // Node* child = GET_CHILD(root, 0);
-    // if (child->tag == TOKEN) {   // Specifier -> TYPE
-    //     assert(child->content.terminal->tag == TYPE);
-    //     return makePrimitiveType(child->content.terminal->content.pType);
-    // }
-    // else {  // Specifier -> StructSpecifier
-    //     assert(child->tag == StructSpecifier);
-    //     return StructSpecifierHandler(child, table);
-    // }
-    return NULL;
+    CATCH_ALL
+        return NULL;
 }
 
 // bool cmpStructTag(SymbolTableEntry* obj, SymbolTableEntry* sbj) {
@@ -303,9 +248,9 @@ Type* StructSpecifierHandler(Node* root, SymbolTable* table) {
     RecordField* fieldList;
     Type* t;
     SymbolTableNode* p;
-    if(PATTERN5(root, _, OptTag, _, DefList, _)) {
+    if (PATTERN2(root, _, Tag)) {
         // using defined structure
-        tag = GET_CHILD(root, 0);
+        tag = GET_CHILD(root, 1);
         assert(tag->tag == Tag);
         assert(tag->content.terminal->tag == ID);
         // lookup the tag in the table
@@ -321,10 +266,10 @@ Type* StructSpecifierHandler(Node* root, SymbolTable* table) {
         raiseError(17, root->content.nonterminal.column, "error 17");
         return NULL;
     }
-    else if(PATTERN2(root, _, Tag)) {
+    else if (PATTERN5(root, _, OptTag, _, DefList, _)) {
         // define new structure
-        optTag = GET_CHILD(root, 0); // XXX: nullable
-        defList = GET_CHILD(root, 1); // XXX: nullable
+        optTag = GET_CHILD(root, 1); // XXX: nullable
+        defList = GET_CHILD(root, 3); // XXX: nullable
 
         fieldList = DefListHandler(defList, table);
         t = makeRecordType(makeRecord(fieldList));
@@ -350,58 +295,8 @@ Type* StructSpecifierHandler(Node* root, SymbolTable* table) {
         }
         return t;   // return the type
     }
-    else {
-        assert(0);
-    }
-    // switch (root->content.nonterminal.childNum) {
-    // case 1:         // using defined structure
-    //     tag = GET_CHILD(root, 0);
-    //     assert(tag->tag == Tag);
-    //     assert(tag->content.terminal->tag == ID);
-    //     // lookup the tag in the table
-    //     for (p = *table; p != NULL; p = p->next) {
-    //         if (p->content->tag != S_STRUCT) { continue; }
-    //         if (strcmp(tag->content.terminal->content.reprS,
-    //             p->content->content.structDef.name) == 0) {
-    //             // defined entry found, return a COPY type
-    //             return cloneType(p->content->content.structDef.type);
-    //         }
-    //     }
-    //     // no entry found, raise ERROR 17
-    //     raiseError(17, root->content.nonterminal.column, "error 17");
-    //     return NULL;
-    // case 2:         // define new structure
-    //     optTag = GET_CHILD(root, 0); // XXX: nullable
-    //     defList = GET_CHILD(root, 1); // XXX: nullable
-
-    //     fieldList = DefListHandler(defList, table);
-    //     t = makeRecordType(makeRecord(fieldList));
-    //     if (optTag) {   // if tag exists
-    //         assert(optTag->tag == OptTag);
-    //         // lookup the tag in the table
-    //         for (p = *table; p != NULL; p = p->next) {
-    //             if (p->content->tag != S_STRUCT) { continue; }
-    //             if (strcmp(optTag->content.terminal->content.reprS,
-    //                 p->content->content.structDef.name) == 0) {
-    //                 // redefinition, raise ERROR 16
-    //                 raiseError(16, root->content.nonterminal.column, "error 16");
-    //                 return NULL;
-    //             }
-    //         }
-    //         // no entry found, define a new entry in the table
-    //         // TODO: check ownership
-    //         addEntry(table,
-    //             makeStructEntry(optTag->content.terminal->content.reprS, t));
-    //     }
-    //     else {          // otherwise
-    //         // TODO: what to do here?
-    //     }
-    //     return t;   // return the type
-    //     break;
-    // default:
-    //     assert(0);  // impossible case
-    // }
-    return NULL;
+    CATCH_ALL
+        return NULL;
 }
 
 /* Definition handlers */
@@ -419,15 +314,15 @@ Type* StructSpecifierHandler(Node* root, SymbolTable* table) {
 RecordField* DefListHandler(Node* root, SymbolTable* table) {
     assert(root != NULL);
     assert(root->tag == DefList);
-    assert(root->content.nonterminal.childNum == 2);
-    Node* def = GET_CHILD(root, 0);
-    Node* defList = GET_CHILD(root, 1);
-    assert(def->tag == Def);
-    assert(defList->tag == DefList);
-    RecordField* x = DefHandler(def, table);
-    RecordField* xs = DefListHandler(defList, table);
-    x->next = xs;
-    return x;
+    if (PATTERN2(root, Def, DefList)) {
+        Node* def = GET_CHILD(root, 0);
+        Node* defList = GET_CHILD(root, 1);
+        RecordField* x = DefHandler(def, table);
+        RecordField* xs = DefListHandler(defList, table);
+        x->next = xs;
+        return x;
+    }
+    CATCH_ALL
 }
 
 /*
@@ -435,15 +330,15 @@ RecordField* DefListHandler(Node* root, SymbolTable* table) {
  */
 RecordField* DefHandler(Node* root, SymbolTable* table) {
     assert(root->tag == Def);
-    assert(root->content.nonterminal.childNum == 2);
-    Node* specifier = GET_CHILD(root, 0);
-    Node* decList = GET_CHILD(root, 1);
-    assert(specifier->tag == Specifier);
-    assert(decList->tag == DecList);
-    Type* t = SpecifierHandler(specifier, table);
-    RecordField* res = DecListHandler(decList, t);
-    deleteType(t);
-    return res;
+    if (PATTERN3(root, Specifier, DecList, _)) {
+        Node* specifier = GET_CHILD(root, 0);
+        Node* decList = GET_CHILD(root, 1);
+        Type* t = SpecifierHandler(specifier, table);
+        RecordField* res = DecListHandler(decList, t);
+        deleteType(t);
+        return res;
+    }
+    CATCH_ALL
 }
 
 /*
@@ -453,23 +348,19 @@ RecordField* DecListHandler(Node* root, Type* inputType) {
     assert(root->tag == DecList);
     Node* dec, * decList;
     RecordField* x, * xs;
-    switch (root->content.nonterminal.childNum) {
-    case 1:     // base case
+    if (PATTERN(root, Dec)) {    // base case
         dec = GET_CHILD(root, 0);
-        assert(dec->tag == Dec);
         return DecHandler(dec, cloneType(inputType));
-    case 2:     // recursive case 
+    }
+    else if (PATTERN3(root, Dec, _, DecList)) {  // recursive case
         dec = GET_CHILD(root, 0);
-        decList = GET_CHILD(root, 1);
-        assert(dec->tag == Dec);
-        assert(decList->tag == DecList);
+        decList = GET_CHILD(root, 2);
         x = DecHandler(dec, cloneType(inputType));
         xs = DecListHandler(decList, cloneType(inputType));
         x->next = xs;
         return x;
-    default:
-        assert(0);
     }
+    CATCH_ALL
 }
 
 /*
@@ -478,20 +369,15 @@ RecordField* DecListHandler(Node* root, Type* inputType) {
 RecordField* DecHandler(Node* root, Type* inputType) {
     assert(root->tag == Dec);
     Node* varDec = NULL;
-    switch (root->content.nonterminal.childNum) {
-    case 1:     // VarDec
+    if (PATTERN(root, VarDec)) {
         varDec = GET_CHILD(root, 0);
-        assert(varDec->tag == VarDec);
-        break;
-    case 2:     // VarDec Exp
+    }
+    else if (PATTERN3(root, VarDec, _, Exp)) {
         // TODO: what to do with the Exp?
         varDec = GET_CHILD(root, 0);
-        assert(varDec->tag == VarDec);
-        break;
-    default:
-        assert(0);
     }
-    assert(varDec != NULL);
+    CATCH_ALL
+        assert(varDec != NULL);
     return VarDecHandler(varDec, inputType);
 }
 
@@ -500,27 +386,73 @@ RecordField* DecHandler(Node* root, Type* inputType) {
  */
 RecordField* VarDecHandler(Node* root, Type* inputType) {
     assert(root->tag == VarDec);
-    Node* id, *varDec, *i;
+    Node* id, * varDec, * i;
     Type* at;
-    switch (root->content.nonterminal.childNum) {
-    case 1:     // ID
+    if (PATTERN(root, TOKEN)) {  // ID
         id = GET_CHILD(root, 0);
-        assert(id->tag == TOKEN);
         return makeRecordField(
             id->content.terminal->content.reprS,
             inputType,
             NULL);  // isolated node
-    case 2:     // VarDec [ Int ]
+    }
+    else if (PATTERN4(root, VarDec, _, TOKEN, _)) { // VarDec [ Int ]
         varDec = GET_CHILD(root, 0);
-        i = GET_CHILD(root, 1);
-        assert(varDec->tag = VarDec);
-        assert(i->tag == TOKEN);
+        i = GET_CHILD(root, 2);
         NEW(Array, a);
         a->size = i->content.terminal->content.intLit;
         a->type = inputType;
         at = makeArrayType(a);
         return VarDecHandler(varDec, at);   // recursively construction
-    default:
-        assert(0);
+
+    }
+    CATCH_ALL
+}
+
+/* print symbol table, for debugging */
+void printType(Type* t, int indent) {
+    int i = 0;
+    for (i = 0; i < indent; i++) {
+        printf("    ");
+    }
+    RecordField* l;
+    switch (t->tag) {
+    case PRIMITIVE:
+        if (t->content.primitive == T_INT) {
+            printf("int\n");
+        }
+        else {
+            printf("float\n");
+        }
+        break;
+    case RECORD:
+        for (l = t->content.record->fieldList; l != NULL; l = l->next) {
+            printf("field name%s\n", l->name);
+            printf("field type:\n");
+            printType(l->type, indent + 1);
+        }
+        break;
+    case ARRAY:
+        printf("size: %d\n", t->content.array->size);
+        printType(t->content.array->type, indent + 1);
+        break;
+    }
+}
+
+void printSymbolTableNode(SymbolTableNode* node) {
+    switch (node->content->tag) {
+    case S_STRUCT:
+        printf("struct name: %s\n", node->content->content.structDef.name);
+        printType(node->content->content.structDef.type, 0);
+        break;
+    case S_VAR:
+        printf("var name: %s\n", node->content->content.varDef.name);
+        printType(node->content->content.varDef.type, 0);
+        break;
+    }
+}
+void printSymbolTable(SymbolTable t) {
+    for(; t != NULL; t = t->next) {
+        printSymbolTableNode(t);
+        printf(",\n");
     }
 }

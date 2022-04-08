@@ -18,7 +18,8 @@ int main(int argc, char** argv) {
     yyparse(&root);
     if(errorType == 0) {
         printParseTree(root, 0);
-        getSymbleTable(root);
+        SymbolTable t = getSymbleTable(root);
+        printSymbolTable(t);
     }
     return 0;
 }

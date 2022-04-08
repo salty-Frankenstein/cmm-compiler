@@ -69,3 +69,5 @@ RecordField* DefHandler(Node* root, SymbolTable* table);
 RecordField* DecListHandler(Node* root, Type* inputType);
 RecordField* DecHandler(Node* root, Type* inputType);
 RecordField* VarDecHandler(Node* root, Type* inputType);
+
+void printSymbolTable(SymbolTable t);
