@@ -221,7 +221,7 @@ Type* SpecifierHandler(Node* root, SymbolTable* table) {
     Node* child = GET_CHILD(root, 0);
     if (PATTERN(root, TOKEN)) {   // Specifier -> TYPE
         assert(child->content.terminal->tag == TYPE);
-        return makePrimitiveType(child->content.terminal->content.pType);
+        return makePrimitiveType(GET_TERMINAL(child, pType));
     }
     else if (PATTERN(root, StructSpecifier)) {
         assert(child->tag == StructSpecifier);
@@ -259,12 +259,11 @@ Type* StructSpecifierHandler(Node* root, SymbolTable* table) {
     if (PATTERN2(root, _, Tag)) {
         // using defined structure
         tag = GET_CHILD(root, 1);
-        assert(tag->tag == Tag);
         assert(tag->content.terminal->tag == ID);
         // lookup the tag in the table
         for (p = *table; p != NULL; p = p->next) {
             if (p->content->tag != S_STRUCT) { continue; }
-            if (strcmp(tag->content.terminal->content.reprS,
+            if (strcmp(GET_TERMINAL(tag, reprS),
                 p->content->content.structDef.name) == 0) {
                 // defined entry found, return a COPY type
                 return cloneType(p->content->content.structDef.type);
@@ -288,9 +287,10 @@ Type* StructSpecifierHandler(Node* root, SymbolTable* table) {
         if (optTag) {   // if tag exists
             assert(optTag->tag == OptTag);
             // lookup the tag in the table
+            Node* tag = GET_CHILD(optTag, 0);
             for (p = *table; p != NULL; p = p->next) {
                 if (p->content->tag != S_STRUCT) { continue; }
-                if (strcmp(GET_TERMINAL(optTag)->content.reprS,
+                if (strcmp(GET_TERMINAL(tag, reprS),
                     p->content->content.structDef.name) == 0) {
                     // redefinition, raise ERROR 16
                     raiseError(16, root->content.nonterminal.column, "error 16");
@@ -299,7 +299,7 @@ Type* StructSpecifierHandler(Node* root, SymbolTable* table) {
             }
             // no entry found, define a new entry in the table
             // TODO: check ownership
-            SymbolTableEntry* e = makeStructEntry(GET_TERMINAL(optTag)->content.reprS, t);
+            SymbolTableEntry* e = makeStructEntry(GET_TERMINAL(tag, reprS), t);
             addEntry(table, e);
         }
         else {          // otherwise
@@ -389,8 +389,8 @@ RecordField* DecHandler(Node* root, Type* inputType) {
         // TODO: what to do with the Exp?
         varDec = GET_CHILD(root, 0);
     }
-    CATCH_ALL
-        assert(varDec != NULL);
+    CATCH_ALL;
+    assert(varDec != NULL);
     return VarDecHandler(varDec, inputType);
 }
 
@@ -404,17 +404,14 @@ RecordField* VarDecHandler(Node* root, Type* inputType) {
     if (PATTERN(root, TOKEN)) {  // ID
         id = GET_CHILD(root, 0);
         return makeRecordField(
-            id->content.terminal->content.reprS,
+            GET_TERMINAL(id, reprS),
             inputType,
             NULL);  // isolated node
     }
     else if (PATTERN4(root, VarDec, _, TOKEN, _)) { // VarDec [ Int ]
         varDec = GET_CHILD(root, 0);
         i = GET_CHILD(root, 2);
-        NEW(Array, a);
-        a->size = i->content.terminal->content.intLit;
-        a->type = inputType;
-        at = makeArrayType(a);
+        at = makeArrayType(makeArray(GET_TERMINAL(i, intLit), inputType));
         return VarDecHandler(varDec, at);   // recursively construction
 
     }

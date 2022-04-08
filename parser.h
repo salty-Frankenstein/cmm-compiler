@@ -7,7 +7,7 @@
   struct varType* varName = (struct varType*)malloc(sizeof(struct varType));
 #define NEW_ARRAY(varType, varName, size) struct varType* varName = (struct varType*)malloc(size * sizeof(struct varType));
 #define GET_CHILD(root, num) (root->content.nonterminal.child[num])
-#define GET_TERMINAL(root) (GET_CHILD(root, 0)->content.terminal)
+#define GET_TERMINAL(root, field) (root->content.terminal->content.field)
 #define NAME_SIZE 64
 #define NEW_NAME(dest, source) \
     { dest = (char*)malloc(NAME_SIZE);\
