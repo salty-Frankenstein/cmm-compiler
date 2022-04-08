@@ -6,21 +6,27 @@
 #define NEW(varType, varName) \
   struct varType* varName = (struct varType*)malloc(sizeof(struct varType));
 #define NEW_ARRAY(varType, varName, size) struct varType* varName = (struct varType*)malloc(size * sizeof(struct varType));
+#define GET_CHILD(root, num) (root->content.nonterminal.child[num])
+#define NAME_SIZE 64
+#define NEW_NAME(dest, source) \
+    { dest = (char*)malloc(NAME_SIZE);\
+      strcpy(dest, source); } \
 
 extern int errorType;
+
 
 enum PrimTypeTag { T_INT, T_FLOAT };
 enum RelOpTag { LT, LE, GT, GE, EQ, NE };
 /* Tokens */
 struct Token {
-  enum yytokentype tag;
-  union {
-    int intLit;             // for INT
-    float floatLit;         // for FLOAT
-    char* reprS;            // for ID 
-    enum PrimTypeTag pType; // for TYPE
-    enum RelOpTag relOp;    // for RELOP
-  } content;
+    enum yytokentype tag;
+    union {
+        int intLit;             // for INT
+        float floatLit;         // for FLOAT
+        char* reprS;            // for ID 
+        enum PrimTypeTag pType; // for TYPE
+        enum RelOpTag relOp;    // for RELOP
+    } content;
 };
 typedef struct Token Token;
 

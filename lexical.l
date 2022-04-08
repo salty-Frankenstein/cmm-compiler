@@ -186,7 +186,7 @@ while {
 }
 
 {letter}+({digit}|{letter})* {
-  char* p = (char*)malloc(100);
+  char* p = (char*)malloc(NAME_SIZE);
   strcpy(p, yytext);
   yylval = makeTokenNode(makeID(p));
   return ID;
