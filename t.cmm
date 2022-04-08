@@ -1,1 +1,5 @@
-int i;
+struct Node {
+  int a;
+  float b[2][3];
+  struct { int i; } k[5];
+};

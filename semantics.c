@@ -5,8 +5,8 @@
 #include<stdlib.h>
 #include<string.h>
 typedef int bool;
-#define true 1;
-#define false 0;
+#define true 1
+#define false 0
 
 #define _ TOKEN
 #define CATCH_ALL else { assert(0); }
@@ -70,6 +70,7 @@ CONS_TYPE(makeArrayType, ARRAY, Array*, array)
 
 /* FieldList deep copy */
 RecordField* cloneFieldList(RecordField* rf) {
+    if (rf == NULL) { return NULL; }
     NEW(RecordField, res);
     NEW_NAME(res->name, rf->name);
     res->type = cloneType(rf->type);
@@ -78,6 +79,7 @@ RecordField* cloneFieldList(RecordField* rf) {
 }
 /* type deep copy */
 Type* cloneType(Type* t) {
+    if (t == NULL) { return NULL; }
     NEW(Type, res);
     res->tag = t->tag;
     switch (t->tag) {
@@ -85,11 +87,10 @@ Type* cloneType(Type* t) {
         res->content.primitive = t->content.primitive;
         break;
     case RECORD:
-        res->content.record->fieldList = cloneFieldList(t->content.record->fieldList);
+        res->content.record = makeRecord(cloneFieldList(t->content.record->fieldList));
         break;
     case ARRAY:
-        res->content.array->size = t->content.array->size;
-        res->content.array->type = cloneType(t->content.array->type);
+        res->content.array = makeArray(t->content.array->size, t->content.array->type);
         break;
     default:
         printf("<%d>\n", t->tag);
@@ -132,6 +133,13 @@ RecordField* makeRecordField(char* name, Type* type, RecordField* next) {
 Record* makeRecord(RecordField* fieldList) {
     NEW(Record, res);
     res->fieldList = fieldList;
+    return res;
+}
+
+Array* makeArray(int size, Type* type) {
+    NEW(Array, res);
+    res->size = size;
+    res->type = cloneType(type);
     return res;
 }
 
@@ -266,19 +274,23 @@ Type* StructSpecifierHandler(Node* root, SymbolTable* table) {
         raiseError(17, root->content.nonterminal.column, "error 17");
         return NULL;
     }
-    else if (PATTERN5(root, _, OptTag, _, DefList, _)) {
+    else if (root->content.nonterminal.childNum == 5) {
         // define new structure
         optTag = GET_CHILD(root, 1); // XXX: nullable
         defList = GET_CHILD(root, 3); // XXX: nullable
-
-        fieldList = DefListHandler(defList, table);
-        t = makeRecordType(makeRecord(fieldList));
+        if (defList != NULL) {
+            fieldList = DefListHandler(defList, table);
+            t = makeRecordType(makeRecord(fieldList));
+        }
+        else {
+            t = NULL;
+        }
         if (optTag) {   // if tag exists
             assert(optTag->tag == OptTag);
             // lookup the tag in the table
             for (p = *table; p != NULL; p = p->next) {
                 if (p->content->tag != S_STRUCT) { continue; }
-                if (strcmp(optTag->content.terminal->content.reprS,
+                if (strcmp(GET_TERMINAL(optTag)->content.reprS,
                     p->content->content.structDef.name) == 0) {
                     // redefinition, raise ERROR 16
                     raiseError(16, root->content.nonterminal.column, "error 16");
@@ -287,16 +299,16 @@ Type* StructSpecifierHandler(Node* root, SymbolTable* table) {
             }
             // no entry found, define a new entry in the table
             // TODO: check ownership
-            addEntry(table,
-                makeStructEntry(optTag->content.terminal->content.reprS, t));
+            SymbolTableEntry* e = makeStructEntry(GET_TERMINAL(optTag)->content.reprS, t);
+            addEntry(table, e);
         }
         else {          // otherwise
             // TODO: what to do here?
         }
         return t;   // return the type
     }
-    CATCH_ALL
-        return NULL;
+    CATCH_ALL;
+    return NULL;
 }
 
 /* Definition handlers */
@@ -308,13 +320,14 @@ Type* StructSpecifierHandler(Node* root, SymbolTable* table) {
  * it can be used as a local symbol table, for the variable def case
  */
 
- /* @Nullable: when argument root == NULL, return NULL
+ /*
+  * @Nullable: return NULL, when `root` is NULL
   * return a list of fields
   */
 RecordField* DefListHandler(Node* root, SymbolTable* table) {
-    assert(root != NULL);
+    if (root == NULL) { return NULL; }
     assert(root->tag == DefList);
-    if (PATTERN2(root, Def, DefList)) {
+    if (root->content.nonterminal.childNum == 2) {
         Node* def = GET_CHILD(root, 0);
         Node* defList = GET_CHILD(root, 1);
         RecordField* x = DefHandler(def, table);
@@ -409,30 +422,38 @@ RecordField* VarDecHandler(Node* root, Type* inputType) {
 }
 
 /* print symbol table, for debugging */
-void printType(Type* t, int indent) {
+void printIndent_(int indent) {
     int i = 0;
     for (i = 0; i < indent; i++) {
         printf("    ");
+    }
+}
+
+void printType(Type* t, int indent) {
+    if (t == NULL) {
+        printIndent_(indent); printf("No type");
+        return;
     }
     RecordField* l;
     switch (t->tag) {
     case PRIMITIVE:
         if (t->content.primitive == T_INT) {
-            printf("int\n");
+            printIndent_(indent); printf("int\n");
         }
         else {
-            printf("float\n");
+            printIndent_(indent); printf("float\n");
         }
         break;
     case RECORD:
         for (l = t->content.record->fieldList; l != NULL; l = l->next) {
-            printf("field name%s\n", l->name);
-            printf("field type:\n");
+            printIndent_(indent); printf("field name: %s\n", l->name);
+            printIndent_(indent); printf("field type:\n");
             printType(l->type, indent + 1);
         }
         break;
     case ARRAY:
-        printf("size: %d\n", t->content.array->size);
+        printIndent_(indent); printf("array size: %d\n", t->content.array->size);
+        printIndent_(indent); printf("elem type:\n");
         printType(t->content.array->type, indent + 1);
         break;
     }
@@ -442,16 +463,18 @@ void printSymbolTableNode(SymbolTableNode* node) {
     switch (node->content->tag) {
     case S_STRUCT:
         printf("struct name: %s\n", node->content->content.structDef.name);
-        printType(node->content->content.structDef.type, 0);
+        printf("type:\n");
+        printType(node->content->content.structDef.type, 1);
         break;
     case S_VAR:
         printf("var name: %s\n", node->content->content.varDef.name);
-        printType(node->content->content.varDef.type, 0);
+        printf("type:\n");
+        printType(node->content->content.varDef.type, 1);
         break;
     }
 }
 void printSymbolTable(SymbolTable t) {
-    for(; t != NULL; t = t->next) {
+    for (; t != NULL; t = t->next) {
         printSymbolTableNode(t);
         printf(",\n");
     }

@@ -58,6 +58,8 @@ Type* cloneType(Type* t);
 RecordField* cloneFieldList(RecordField* rf);
 SymbolTable getSymbleTable(Node* parseTree);
 
+Record* makeRecord(RecordField* fieldList);
+Array* makeArray(int size, Type* type);
 
 void ExtDefListHandler(Node* root, SymbolTable* table);
 void ExtDefHandler(Node* root, SymbolTable* table);
@@ -71,3 +73,4 @@ RecordField* DecHandler(Node* root, Type* inputType);
 RecordField* VarDecHandler(Node* root, Type* inputType);
 
 void printSymbolTable(SymbolTable t);
+void printIndent_(int indent);
