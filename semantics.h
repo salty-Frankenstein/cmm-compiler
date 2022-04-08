@@ -1,3 +1,7 @@
+typedef int bool;
+#define true 1
+#define false 0
+
 /* Type definitions */
 struct Type;
 
@@ -66,10 +70,10 @@ void ExtDefHandler(Node* root, SymbolTable* table);
 RecordField* ExtDecListHandler(Node* root, Type* inputType);
 Type* SpecifierHandler(Node* root, SymbolTable* table);
 Type* StructSpecifierHandler(Node* root, SymbolTable* table);
-RecordField* DefListHandler(Node* root, SymbolTable* table);
-RecordField* DefHandler(Node* root, SymbolTable* table);
-RecordField* DecListHandler(Node* root, Type* inputType);
-RecordField* DecHandler(Node* root, Type* inputType);
+RecordField* DefListHandler(Node* root, SymbolTable* table, bool *containsExp);
+RecordField* DefHandler(Node* root, SymbolTable* table, bool *containsExp);
+RecordField* DecListHandler(Node* root, Type* inputType, bool *containsExp);
+RecordField* DecHandler(Node* root, Type* inputType, bool *containsExp);
 RecordField* VarDecHandler(Node* root, Type* inputType);
 
 void printSymbolTable(SymbolTable t);

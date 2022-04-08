@@ -4,9 +4,6 @@
 #include<stdio.h>
 #include<stdlib.h>
 #include<string.h>
-typedef int bool;
-#define true 1
-#define false 0
 
 #define _ TOKEN
 #define CATCH_ALL else { assert(0); }
@@ -161,10 +158,8 @@ SymbolTable getSymbleTable(Node* root) {
 void ExtDefListHandler(Node* root, SymbolTable* table) {
     if (root == NULL) { return; }
     assert(root->content.nonterminal.childNum == 2);
-    Node* x = GET_CHILD(root, 0);
-    Node* xs = GET_CHILD(root, 1);
-    ExtDefHandler(x, table);
-    ExtDefListHandler(xs, table);
+    ExtDefHandler(GET_CHILD(root, 0), table);
+    ExtDefListHandler(GET_CHILD(root, 1), table);
 }
 
 /* side effect */
@@ -173,15 +168,36 @@ void ExtDefHandler(Node* root, SymbolTable* table) {
 
     Node* specifier, * extDecList;
     Type* t;
-    RecordField* l;
+    RecordField* def;
+    SymbolTableNode* p;
+    bool flag;
     if (PATTERN3(root, Specifier, ExtDecList, _)) { // ExtDef -> Specifier ExtDecList SEMI
         specifier = GET_CHILD(root, 0);
         extDecList = GET_CHILD(root, 1);
         t = SpecifierHandler(specifier, table);
-        l = ExtDecListHandler(extDecList, t);
+        def = ExtDecListHandler(extDecList, t);
         // add all definitions in the list
-        for (;l != NULL; l = l->next) {
-            addEntry(table, makeVarEntry(l->name, l->type));
+        for (;def != NULL; def = def->next) {
+            // check the original table 
+            for (p = *table, flag = false; p != NULL; p = p->next) {
+                // if the variable has already been defined
+                if (p->content->tag == S_VAR
+                    && strcmp(p->content->content.varDef.name, def->name) == 0) {
+                    raiseError(3, root->content.nonterminal.column, "error 3");
+                    flag = true;
+                    break;
+                }
+                // if the variable has a same name as an exist structure
+                if (p->content->tag == S_STRUCT
+                    && strcmp(p->content->content.structDef.name, def->name)) {
+                    raiseError(3, root->content.nonterminal.column, "error 3");
+                    flag = true;
+                    break;
+                }
+            }
+            if (!flag) {    // if not defined
+                addEntry(table, makeVarEntry(def->name, def->type));
+            }
         }
     }
     else if (PATTERN2(root, Specifier, _)) { // ExtDef -> Specifier SEMI
@@ -220,11 +236,9 @@ Type* SpecifierHandler(Node* root, SymbolTable* table) {
     assert(root->content.nonterminal.childNum == 1);
     Node* child = GET_CHILD(root, 0);
     if (PATTERN(root, TOKEN)) {   // Specifier -> TYPE
-        assert(child->content.terminal->tag == TYPE);
         return makePrimitiveType(GET_TERMINAL(child, pType));
     }
     else if (PATTERN(root, StructSpecifier)) {
-        assert(child->tag == StructSpecifier);
         return StructSpecifierHandler(child, table);
     }
     CATCH_ALL;
@@ -256,6 +270,7 @@ Type* StructSpecifierHandler(Node* root, SymbolTable* table) {
     RecordField* fieldList;
     Type* t;
     SymbolTableNode* p;
+    bool containsExp = false;
     if (PATTERN2(root, _, Tag)) {
         // using defined structure
         tag = GET_CHILD(root, 1);
@@ -279,7 +294,11 @@ Type* StructSpecifierHandler(Node* root, SymbolTable* table) {
         optTag = GET_CHILD(root, 1); // XXX: nullable
         defList = GET_CHILD(root, 3); // XXX: nullable
         if (defList != NULL) {
-            fieldList = DefListHandler(defList, table);
+            fieldList = DefListHandler(defList, table, &containsExp);
+            if(containsExp) {
+                raiseError(15, root->content.nonterminal.column, "error 15");
+                return NULL;
+            }
             t = makeRecordType(makeRecord(fieldList));
         }
         else {
@@ -325,14 +344,14 @@ Type* StructSpecifierHandler(Node* root, SymbolTable* table) {
   * @Nullable: return NULL, when `root` is NULL
   * return a list of fields
   */
-RecordField* DefListHandler(Node* root, SymbolTable* table) {
+RecordField* DefListHandler(Node* root, SymbolTable* table, bool *containsExp) {
     if (root == NULL) { return NULL; }
     assert(root->tag == DefList);
     if (root->content.nonterminal.childNum == 2) {
         Node* def = GET_CHILD(root, 0);
         Node* defList = GET_CHILD(root, 1);
-        RecordField* x = DefHandler(def, table);
-        RecordField* xs = DefListHandler(defList, table);
+        RecordField* x = DefHandler(def, table, containsExp);
+        RecordField* xs = DefListHandler(defList, table, containsExp);
         x->next = xs;
         return x;
     }
@@ -342,13 +361,13 @@ RecordField* DefListHandler(Node* root, SymbolTable* table) {
 /*
  * return a list of record fields
  */
-RecordField* DefHandler(Node* root, SymbolTable* table) {
+RecordField* DefHandler(Node* root, SymbolTable* table, bool *containsExp) {
     assert(root->tag == Def);
     if (PATTERN3(root, Specifier, DecList, _)) {
         Node* specifier = GET_CHILD(root, 0);
         Node* decList = GET_CHILD(root, 1);
         Type* t = SpecifierHandler(specifier, table);
-        RecordField* res = DecListHandler(decList, t);
+        RecordField* res = DecListHandler(decList, t, containsExp);
         deleteType(t);
         return res;
     }
@@ -358,19 +377,19 @@ RecordField* DefHandler(Node* root, SymbolTable* table) {
 /*
  * return a list of record fields, `inputType` is a read-only ref
  */
-RecordField* DecListHandler(Node* root, Type* inputType) {
+RecordField* DecListHandler(Node* root, Type* inputType, bool* containsExp) {
     assert(root->tag == DecList);
     Node* dec, * decList;
     RecordField* x, * xs;
     if (PATTERN(root, Dec)) {    // base case
         dec = GET_CHILD(root, 0);
-        return DecHandler(dec, cloneType(inputType));
+        return DecHandler(dec, cloneType(inputType), containsExp);
     }
     else if (PATTERN3(root, Dec, _, DecList)) {  // recursive case
         dec = GET_CHILD(root, 0);
         decList = GET_CHILD(root, 2);
-        x = DecHandler(dec, cloneType(inputType));
-        xs = DecListHandler(decList, cloneType(inputType));
+        x = DecHandler(dec, cloneType(inputType), containsExp);
+        xs = DecListHandler(decList, cloneType(inputType), containsExp);
         x->next = xs;
         return x;
     }
@@ -380,7 +399,7 @@ RecordField* DecListHandler(Node* root, Type* inputType) {
 /*
  * XXX: this method **DO CONSUME** ownership of argument `inputType`
  */
-RecordField* DecHandler(Node* root, Type* inputType) {
+RecordField* DecHandler(Node* root, Type* inputType, bool *containsExp) {
     assert(root->tag == Dec);
     Node* varDec = NULL;
     if (PATTERN(root, VarDec)) {
@@ -389,6 +408,7 @@ RecordField* DecHandler(Node* root, Type* inputType) {
     else if (PATTERN3(root, VarDec, _, Exp)) {
         // TODO: what to do with the Exp?
         varDec = GET_CHILD(root, 0);
+        *containsExp = true;
     }
     CATCH_ALL;
     assert(varDec != NULL);
