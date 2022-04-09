@@ -674,11 +674,8 @@ void CompStHandler(Node* root, SymbolTable* table, Type* retType) {
 void StmtListHandler(Node* root, SymbolTable* table, Type* retType) {
     if (root == NULL) { return; }
     assert(root->tag == StmtList);
-    if (PATTERN2(root, Stmt, StmtList)) {
-        StmtHandler(GET_CHILD(root, 0), table, retType);
-        StmtListHandler(GET_CHILD(root, 1), table, retType);
-    }
-    CATCH_ALL
+    StmtHandler(GET_CHILD(root, 0), table, retType);
+    StmtListHandler(GET_CHILD(root, 1), table, retType);
 }
 
 void StmtHandler(Node* root, SymbolTable* table, Type* retType) {
@@ -712,6 +709,23 @@ void StmtHandler(Node* root, SymbolTable* table, Type* retType) {
     CATCH_ALL
 }
 
+/*
+ * a helper function to check if a expr is lval
+ */
+bool isLValue(Node* exp) {
+    assert(exp->tag == Exp);
+    if (PATTERN(exp, _)) {
+        return GET_CHILD(exp, 0)->content.terminal->tag == ID;
+    }
+    else if (PATTERN4(exp, Exp, _, Exp, _)) {
+        return true;
+    }
+    else if (PATTERN3(exp, Exp, _, _)) {
+        return true;
+    }
+    return false;
+}
+
 // TODO: make sure that all sub exprs are visited
 /*
  * @Nullable, for error case
@@ -728,6 +742,25 @@ Type* ExpHandler(Node* root, SymbolTable table) {
             return NULL;    // just a Maybe Monad
         }
         switch (GET_CHILD(root, 1)->content.terminal->tag) {
+        case ASSIGNOP:
+            do {
+                // check if the lhs is lval
+                if (!isLValue(GET_CHILD(root, 0))) {
+                    raiseError(6, root->content.nonterminal.column, "error 6");
+                    break;
+                }
+                // match type
+                if (typeEqual(t1, t2)) {
+                    deleteType(t1);
+                    return t2;
+                }
+                else {
+                    raiseError(5, root->content.nonterminal.column, "error 5");
+                    break;
+                }
+            } while (false);
+            deleteType(t1); deleteType(t2);
+            return NULL;
         case AND: case OR:
             // logic expr is only for int
             if (t1->tag == PRIMITIVE && t2->tag == PRIMITIVE
