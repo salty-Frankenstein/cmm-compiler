@@ -2,6 +2,8 @@ typedef int bool;
 #define true 1
 #define false 0
 
+enum IDKind { ID_VAR, ID_FIELD, ID_FUNC };
+
 /* Type definitions */
 struct Type;
 
@@ -97,6 +99,14 @@ void FunDecHandler(Node* root, SymbolTable* table, Type* retType, bool isDef);
 RecordField* VarListHandler(Node* root, SymbolTable* table);
 RecordField* ParamDecHandler(Node* root, SymbolTable* table);
 
+void CompStHandler(Node* root, SymbolTable* table, Type* retType);
+void StmtListHandler(Node* root, SymbolTable* table, Type* retType);
+void StmtListHandler(Node* root, SymbolTable* table, Type* retType);
+void StmtHandler(Node* root, SymbolTable* table, Type* retType);
+Type* ExpHandler(Node* root, SymbolTable table);
+Type* IDHandler(Node* root, SymbolTable* table, enum IDKind kind);
+Type* IDRecHandler(Node* root, Record* record);
+RecordField* ArgsHandler(Node* root, SymbolTable table);
 
 void printSymbolTable(SymbolTable t);
 void printIndent_(int indent);

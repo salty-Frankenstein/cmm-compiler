@@ -258,6 +258,35 @@ void ExtDefListHandler(Node* root, SymbolTable* table) {
     ExtDefListHandler(GET_CHILD(root, 1), table);
 }
 
+void defineFieldList(RecordField* def, SymbolTable* table, int lineNo) {
+    SymbolTableNode* p;
+    bool flag;
+    // add all definitions in the list
+    for (;def != NULL; def = def->next) {
+        // check the original table 
+        for (p = *table, flag = false; p != NULL; p = p->next) {
+            // if the variable has already been defined
+            if (p->content->tag == S_VAR
+                && strcmp(p->content->content.varDef->name, def->name) == 0) {
+                raiseError(3, lineNo, "error 3");
+                flag = true;
+                break;
+            }
+            // if the variable has a same name as an exist structure
+            if (p->content->tag == S_STRUCT
+                && strcmp(p->content->content.structDef->name, def->name)) {
+                raiseError(3, lineNo, "error 3");
+                flag = true;
+                break;
+            }
+            // TODO: what if var-func conflict?
+        }
+        if (!flag) {    // if not defined
+            addEntry(table, makeVarEntry(makeNameTypePair(def->name, def->type)));
+        }
+    }
+}
+
 /* side effect */
 void ExtDefHandler(Node* root, SymbolTable* table) {
     assert(root->tag == ExtDef);
@@ -273,28 +302,7 @@ void ExtDefHandler(Node* root, SymbolTable* table) {
         t = SpecifierHandler(specifier, table);
         def = ExtDecListHandler(extDecList, t);
         // add all definitions in the list
-        for (;def != NULL; def = def->next) {
-            // check the original table 
-            for (p = *table, flag = false; p != NULL; p = p->next) {
-                // if the variable has already been defined
-                if (p->content->tag == S_VAR
-                    && strcmp(p->content->content.varDef->name, def->name) == 0) {
-                    raiseError(3, root->content.nonterminal.column, "error 3");
-                    flag = true;
-                    break;
-                }
-                // if the variable has a same name as an exist structure
-                if (p->content->tag == S_STRUCT
-                    && strcmp(p->content->content.structDef->name, def->name)) {
-                    raiseError(3, root->content.nonterminal.column, "error 3");
-                    flag = true;
-                    break;
-                }
-            }
-            if (!flag) {    // if not defined
-                addEntry(table, makeVarEntry(makeNameTypePair(def->name, def->type)));
-            }
-        }
+        defineFieldList(def, table, root->content.nonterminal.column);
     }
     else if (PATTERN2(root, Specifier, _)) { // ExtDef -> Specifier SEMI
         specifier = GET_CHILD(root, 0);
@@ -308,7 +316,7 @@ void ExtDefHandler(Node* root, SymbolTable* table) {
         // FIXME: side effect here, is it reasonable?
         retType = SpecifierHandler(specifier, table);
         FunDecHandler(funDec, table, retType, true);
-        // TODO: process the function body
+        CompStHandler(compSt, table, retType);
     }
     else if (PATTERN3(root, Specifier, FunDec, TOKEN)) { // function declaration 
         specifier = GET_CHILD(root, 0);
@@ -354,14 +362,6 @@ Type* SpecifierHandler(Node* root, SymbolTable* table) {
     CATCH_ALL;
     return NULL;
 }
-
-// bool cmpStructTag(SymbolTableEntry* obj, SymbolTableEntry* sbj) {
-//     assert(sbj->tag == S_STRUCT);
-//     if (obj->tag != S_STRUCT) {
-//         return false;
-//     }
-//     return strcmp(obj->content.structDef.name, sbj->content.structDef.name) == 0;
-// }
 
 /*
  * @Nullable: for error case
@@ -655,76 +655,242 @@ RecordField* ParamDecHandler(Node* root, SymbolTable* table) {
     CATCH_ALL
 }
 
-/* statements & expressions */
-void CompStHandler(Node* root) {
+/*
+ * statements & expressions
+ * since all variables are global, this method contains side effect
+ */
+void CompStHandler(Node* root, SymbolTable* table, Type* retType) {
     assert(root->tag == CompSt);
     if (PATTERN4(root, _, DefList, StmtList, _)) {
-
+        bool waste;
+        RecordField* def = DefListHandler(GET_CHILD(root, 1), table, &waste);
+        // add entry here
+        defineFieldList(def, table, root->content.nonterminal.column);
+        StmtListHandler(GET_CHILD(root, 2), *table, retType);
     }
     CATCH_ALL
 }
 
-void StmtListHandler(Node* root) {
+void StmtListHandler(Node* root, SymbolTable* table, Type* retType) {
     assert(root->tag == StmtList);
-
+    if (root == NULL) { return; }
+    if (PATTERN2(root, Stmt, StmtList)) {
+        StmtHandler(GET_CHILD(root, 0), table, retType);
+        StmtListHandler(GET_CHILD(root, 1), table, retType);
+    }
+    CATCH_ALL
 }
 
-void StmtHandler(Node* root) {
+void StmtHandler(Node* root, SymbolTable* table, Type* retType) {
     assert(root->tag == Stmt);
     if (PATTERN2(root, Exp, _)) {        // Exp;
-
+        // check the expression
+        Type* t = ExpHandler(GET_CHILD(root, 0), *table);
+        deleteType(t);
     }
     else if (PATTERN(root, CompSt)) {
-
+        CompStHandler(GET_CHILD(root, 0), table, retType);
     }
     else if (PATTERN3(root, _, Exp, _)) {    // return Exp;
-
+        Type* t = ExpHandler(GET_CHILD(root, 1), *table);
+        if (t != NULL && !typeEqual(t, retType)) {
+            raiseError(8, root->content.nonterminal.column, "error 8");
+        }
+        deleteType(t);
     }
     else if (PATTERN5(root, _, _, Exp, _, Stmt)) {   // if(Exp) Stmt || while(Exp) Stmt
-
+        Type* t = ExpHandler(GET_CHILD(root, 2), *table);
+        StmtHandler(GET_CHILD(root, 4), table, retType);
+        deleteType(t);
     }
     else if (PATTERN7(root, _, _, Exp, _, Stmt, _, Stmt)) {  // if(Exp) Stmt else Stmt
-
+        Type* t = ExpHandler(GET_CHILD(root, 2), *table);
+        StmtHandler(GET_CHILD(root, 4), table, retType);
+        StmtHandler(GET_CHILD(root, 6), table, retType);
+        deleteType(t);
     }
     CATCH_ALL
 }
+
+// TODO: make sure that all sub exprs are visited
 /*
+ * @Nullable, for error case
  * pure, for type checking
  * return type of the expression if checked
  */
 Type* ExpHandler(Node* root, SymbolTable table) {
     assert(root->tag == Exp);
     if (PATTERN3(root, Exp, _, Exp)) {       // binary
-
-    }
-    else if (PATTERN3(root, _, Exp, _)) {    // (Exp)
-
-    }
-    else if (PATTERN2(root, _, Exp)) {       // -Exp & !Exp
-
-    }
-    else if (PATTERN4(root, _, _, Args, _)) {    // ID(Args)
-
-    }
-    else if (PATTERN3(root, _, _, _)) {      // ID()
-
-    }
-    else if (PATTERN4(root, Exp, _, Exp, _)) {   // Exp[Exp]
-
-    }
-    else if (PATTERN3(root, Exp, _, _)) {    // Exp.ID
-
-    }
-    else if (PATTERN(root, TOKEN)) {         // lit & id
-        Node* token = GET_CHILD(root, 0);
-        SymbolTableNode* p;
-        switch (token->content.terminal->tag) {
-        case ID:
-            /* lookup the table and return the type */
-            for (p = table; p != NULL; p = p->next) {
-                
+        Type* t1 = ExpHandler(GET_CHILD(root, 0), table);
+        Type* t2 = ExpHandler(GET_CHILD(root, 2), table);
+        if (t1 == NULL || t2 == NULL) {
+            // TODO: does it need to be an error here?
+            return NULL;    // just a Maybe Monad
+        }
+        switch (GET_CHILD(root, 1)->content.terminal->tag) {
+        case AND: case OR:
+            // logic expr is only for int
+            if (t1->tag == PRIMITIVE && t2->tag == PRIMITIVE
+                && t1->content.primitive == T_INT && t2->content.primitive == T_INT) {
+                deleteType(t1); deleteType(t2);
+                return makePrimitiveType(T_INT);
             }
             break;
+        case RELOP: case PLUS: case MINUS: case STAR: case DIV:
+            // arithmetic operators, only for int-int or float-float
+            if (t1->tag == PRIMITIVE && t2->tag == PRIMITIVE
+                && t1->content.primitive == t2->content.primitive) {
+                deleteType(t1); deleteType(t2);
+                return makePrimitiveType(t1->content.primitive);
+            }
+            break;
+        default:
+            assert(0);
+        }
+        // oprand type not matched
+        deleteType(t1); deleteType(t2);
+        raiseError(7, root->content.nonterminal.column, "error 7");
+        return NULL;
+    }
+    else if (PATTERN3(root, _, Exp, _)) {    // (Exp)
+        // no additional checking
+        return ExpHandler(GET_CHILD(root, 1), table);
+    }
+    else if (PATTERN2(root, _, Exp)) {       // -Exp & !Exp
+        Type* t = ExpHandler(GET_CHILD(root, 1), table);
+        if (t == NULL) {
+            return NULL;
+        }
+        switch (GET_CHILD(root, 0)->content.terminal->tag) {
+        case MINUS:
+            if (t->tag == PRIMITIVE) {
+                return t;
+            }
+            break;
+        case NOT:
+            if (t->tag == PRIMITIVE && t->content.primitive == T_INT) {
+                return t;
+            }
+            break;
+        default:
+            assert(0);
+        }
+        deleteType(t);
+        raiseError(7, root->content.nonterminal.column, "error 7");
+        return NULL;
+    }
+    else if (PATTERN4(root, _, _, Args, _)) {    // ID(Args)
+        Type* t = IDHandler(GET_CHILD(root, 0), table, ID_FUNC);
+        do {
+            if (t == NULL) {
+                break;
+            }
+            // check signature
+            if (t->tag == FUNC) {
+                if (t->content.func->params == NULL) {
+                    raiseError(9, root->content.nonterminal.column, "error 9");
+                    break;
+                }
+                else {
+                    RecordField* args = ArgsHandler(GET_CHILD(root, 2), table);
+                    RecordField* a = args;
+                    RecordField* p = t->content.func->params;
+                    for (; a != NULL && p != NULL; a = a->next, p = p->next) {
+                        if (!typeEqual(a->type, p->type)) {
+                            raiseError(9, root->content.nonterminal.column, "error 9");
+                            break;
+                        }
+                    }
+                    if (a == NULL && p == NULL) {
+                        deleteType(t);
+                        // TODO: delete args
+                        return cloneType(t->content.func->retType);
+                    }
+                    else {
+                        raiseError(9, root->content.nonterminal.column, "error 9");
+                        break;
+                    }
+                }
+            }
+            else {
+                raiseError(11, root->content.nonterminal.column, "error 11");
+                break;
+            }
+        } while (false);
+        deleteType(t);
+        return NULL;
+    }
+    else if (PATTERN3(root, _, _, _)) {      // ID()
+        Type* t = IDHandler(GET_CHILD(root, 0), table, ID_FUNC);
+        if (t == NULL) {
+            return NULL;
+        }
+        // check signature
+        if (t->tag == FUNC) {
+            if (t->content.func->params == NULL) {
+                Type* retType = cloneType(t->content.func->retType);
+                deleteType(t);
+                return retType;
+            }
+            else {
+                deleteType(t);
+                raiseError(9, root->content.nonterminal.column, "error 9");
+                return NULL;
+            }
+        }
+        else {
+            deleteType(t);
+            raiseError(11, root->content.nonterminal.column, "error 11");
+            return NULL;
+        }
+    }
+    else if (PATTERN4(root, Exp, _, Exp, _)) {   // Exp[Exp]
+        Type* t1 = ExpHandler(GET_CHILD(root, 0), table);
+        Type* t2 = ExpHandler(GET_CHILD(root, 2), table);
+        if (t1 == NULL || t2 == NULL) {
+            return NULL;
+        }
+        if (t1->tag == ARRAY) {
+            if (t2->tag == PRIMITIVE && t2->content.primitive == T_INT) {
+                Type* retType = cloneType(t1->content.array->type);
+                deleteType(t1); deleteType(t2);
+                return retType;
+            }
+            else {
+                deleteType(t1); deleteType(t2);
+                raiseError(12, root->content.nonterminal.column, "error 12");
+                return NULL;
+            }
+        }
+        else {
+            deleteType(t1); deleteType(t2);
+            raiseError(10, root->content.nonterminal.column, "error 10");
+            return NULL;
+        }
+    }
+    else if (PATTERN3(root, Exp, _, _)) {    // Exp.ID
+        Type* t1 = ExpHandler(GET_CHILD(root, 0), table);
+        if (t1 == NULL) {
+            return NULL;
+        }
+        if (t1->tag == RECORD) {
+            Type* t2 = IDRecHandler(GET_CHILD(root, 2), t1->content.record);
+            if (t2 == NULL) {
+                return NULL;
+            }
+            return t2;
+        }
+        else {
+            deleteType(t1);
+            raiseError(13, root->content.nonterminal.column, "error 13");
+            return NULL;
+        }
+    }
+    else if (PATTERN(root, TOKEN)) {         // lit & id, base case
+        Node* token = GET_CHILD(root, 0);
+        switch (token->content.terminal->tag) {
+        case ID:
+            return IDHandler(token, table, ID_VAR);
         case INT:
             return makePrimitiveType(T_INT);
         case FLOAT:
@@ -732,18 +898,100 @@ Type* ExpHandler(Node* root, SymbolTable table) {
         default:
             assert(0);
         }
-
     }
     CATCH_ALL
 }
 
-void ArgsHandler(Node* root) {
+/*
+ * @Nullable, for error case
+ * quite special one, for ID (in expressions)
+ */
+Type* IDHandler(Node* root, SymbolTable* table, enum IDKind kind) {
+    assert(root->tag == TOKEN && root->content.terminal->tag == ID);
+    assert(kind == ID_VAR || kind == ID_FUNC);
+    SymbolTableNode* p;
+    /* lookup the table and return the type */
+    for (p = table; p != NULL; p = p->next) {
+        switch (p->content->tag) {
+        case S_VAR:
+            if (strcmp(p->content->content.varDef->name,
+                GET_TERMINAL(root, reprS)) == 0) {
+                return cloneType(p->content->content.varDef->type);
+            }
+            break;
+        case S_FUNC:
+            if (strcmp(p->content->content.funcDef->name,
+                GET_TERMINAL(root, reprS)) == 0) {
+                return cloneType(p->content->content.funcDef->type);
+            }
+            break;
+        default:
+            continue;   // skip the structure since it's a type
+            // TODO: what if the var name is same as struct name?
+        }
+    }
+    // not found, raise error
+    switch (kind) {
+    case ID_VAR:
+        raiseError(1, root->content.nonterminal.column, "error 1");
+        break;
+    case ID_FUNC:
+        raiseError(2, root->content.nonterminal.column, "error 2");
+        break;
+    default:
+        assert(0);
+    }
+    return NULL;
+}
+
+/*
+ * @Nullable, for error case
+ * same as above, but a record instead of symbol table
+ * for structures
+ */
+Type* IDRecHandler(Node* root, Record* record) {
+    assert(root->tag == TOKEN && root->content.terminal->tag == ID);
+    RecordField* p;
+    for (p = record->fieldList; p != NULL; p = p->next) {
+        if (strcmp(p->name, GET_TERMINAL(root, reprS)) == 0) {
+            return cloneType(p->type);
+        }
+    }
+    raiseError(14, root->content.nonterminal.column, "error 14");
+    return NULL;
+}
+
+/**
+ * @Nullable, for error case
+ * return a list of record fields, with no names
+ */
+RecordField* ArgsHandler(Node* root, SymbolTable table) {
     assert(root->tag == Args);
     if (PATTERN(root, Exp)) {
-
+        Type* t = ExpHandler(GET_CHILD(root, 0), table);
+        if (t == NULL) {
+            return NULL;
+        }
+        else {
+            // TODO: lifetime here
+            return makeRecordField(NULL, t, NULL);
+        }
     }
     else if (PATTERN3(root, Exp, _, Args)) {
-
+        Type* t = ExpHandler(GET_CHILD(root, 0), table);
+        if (t == NULL) {
+            return NULL;
+        }
+        else {
+            RecordField* xs = ArgsHandler(GET_CHILD(root, 2), table);
+            if (xs == NULL) {
+                return NULL;
+            }
+            else {
+                RecordField* x = makeRecordField(NULL, t, xs);
+                return x;
+            }
+        }
     }
     CATCH_ALL
 }
