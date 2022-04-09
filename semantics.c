@@ -60,7 +60,7 @@
     && _PATTERN7(root, tag0, tag1, tag2, tag3, tag4, tag5, tag6)
 
 /* error info handler */
-void raiseError(int errorType, int lineNo, const char* msg) {
+void raiseError(int errorType, int lineNo, char* msg) {
     assert(errorType > 0 && errorType <= 19);
     printf("Error type %d at Line %d: %s\n", errorType, lineNo, msg);
 }
@@ -258,32 +258,29 @@ void ExtDefListHandler(Node* root, SymbolTable* table) {
     ExtDefListHandler(GET_CHILD(root, 1), table);
 }
 
-void defineFieldList(RecordField* def, SymbolTable* table, int lineNo) {
+void defineVar(RecordField* def, SymbolTable* table, int lineNo) {
     SymbolTableNode* p;
     bool flag;
-    // add all definitions in the list
-    for (;def != NULL; def = def->next) {
-        // check the original table 
-        for (p = *table, flag = false; p != NULL; p = p->next) {
-            // if the variable has already been defined
-            if (p->content->tag == S_VAR
-                && strcmp(p->content->content.varDef->name, def->name) == 0) {
-                raiseError(3, lineNo, "error 3");
-                flag = true;
-                break;
-            }
-            // if the variable has a same name as an exist structure
-            if (p->content->tag == S_STRUCT
-                && strcmp(p->content->content.structDef->name, def->name)) {
-                raiseError(3, lineNo, "error 3");
-                flag = true;
-                break;
-            }
-            // TODO: what if var-func conflict?
+    // check the original table 
+    for (p = *table, flag = false; p != NULL; p = p->next) {
+        // if the variable has already been defined
+        if (p->content->tag == S_VAR
+            && strcmp(p->content->content.varDef->name, def->name) == 0) {
+            raiseError(3, lineNo, "error 3");
+            flag = true;
+            break;
         }
-        if (!flag) {    // if not defined
-            addEntry(table, makeVarEntry(makeNameTypePair(def->name, def->type)));
+        // if the variable has a same name as an exist structure
+        if (p->content->tag == S_STRUCT
+            && strcmp(p->content->content.structDef->name, def->name) == 0) {
+            raiseError(3, lineNo, "error 3");
+            flag = true;
+            break;
         }
+        // TODO: what if var-func conflict?
+    }
+    if (!flag) {    // if not defined
+        addEntry(table, makeVarEntry(makeNameTypePair(def->name, def->type)));
     }
 }
 
@@ -300,9 +297,9 @@ void ExtDefHandler(Node* root, SymbolTable* table) {
         specifier = GET_CHILD(root, 0);
         extDecList = GET_CHILD(root, 1);
         t = SpecifierHandler(specifier, table);
+        //TODO: eliminate this def
+        // side effect here, add entries
         def = ExtDecListHandler(extDecList, t);
-        // add all definitions in the list
-        defineFieldList(def, table, root->content.nonterminal.column);
     }
     else if (PATTERN2(root, Specifier, _)) { // ExtDef -> Specifier SEMI
         specifier = GET_CHILD(root, 0);
@@ -476,6 +473,7 @@ RecordField* DefListHandler(Node* root, SymbolTable* table, bool* containsExp) {
 }
 
 /*
+ * @side effect
  * return a list of record fields
  */
 RecordField* DefHandler(Node* root, SymbolTable* table, bool* containsExp) {
@@ -484,7 +482,7 @@ RecordField* DefHandler(Node* root, SymbolTable* table, bool* containsExp) {
         Node* specifier = GET_CHILD(root, 0);
         Node* decList = GET_CHILD(root, 1);
         Type* t = SpecifierHandler(specifier, table);
-        RecordField* res = DecListHandler(decList, t, containsExp);
+        RecordField* res = DecListHandler(decList, table, t, containsExp);
         deleteType(t);
         return res;
     }
@@ -492,21 +490,22 @@ RecordField* DefHandler(Node* root, SymbolTable* table, bool* containsExp) {
 }
 
 /*
+ * @side effect: this method define the corresponding var list to the symbol table
  * return a list of record fields, `inputType` is a read-only ref
  */
-RecordField* DecListHandler(Node* root, Type* inputType, bool* containsExp) {
+RecordField* DecListHandler(Node* root, SymbolTable* table, Type* inputType, bool* containsExp) {
     assert(root->tag == DecList);
     Node* dec, * decList;
     RecordField* x, * xs;
     if (PATTERN(root, Dec)) {    // base case
         dec = GET_CHILD(root, 0);
-        return DecHandler(dec, cloneType(inputType), containsExp);
+        return DecHandler(dec, table, cloneType(inputType), containsExp);
     }
     else if (PATTERN3(root, Dec, _, DecList)) {  // recursive case
         dec = GET_CHILD(root, 0);
         decList = GET_CHILD(root, 2);
-        x = DecHandler(dec, cloneType(inputType), containsExp);
-        xs = DecListHandler(decList, cloneType(inputType), containsExp);
+        x = DecHandler(dec, table, cloneType(inputType), containsExp);
+        xs = DecListHandler(decList, table, cloneType(inputType), containsExp);
         x->next = xs;
         return x;
     }
@@ -514,9 +513,10 @@ RecordField* DecListHandler(Node* root, Type* inputType, bool* containsExp) {
 }
 
 /*
+ * @side effect: this method define the corresponding var to the symbol table
  * XXX: this method **DO CONSUME** ownership of argument `inputType`
  */
-RecordField* DecHandler(Node* root, Type* inputType, bool* containsExp) {
+RecordField* DecHandler(Node* root, SymbolTable* table, Type* inputType, bool* containsExp) {
     assert(root->tag == Dec);
     Node* varDec = NULL;
     if (PATTERN(root, VarDec)) {
@@ -524,12 +524,16 @@ RecordField* DecHandler(Node* root, Type* inputType, bool* containsExp) {
     }
     else if (PATTERN3(root, VarDec, _, Exp)) {
         // TODO: what to do with the Exp?
+        // TODO: check the exp
         varDec = GET_CHILD(root, 0);
         *containsExp = true;
     }
     CATCH_ALL;
     assert(varDec != NULL);
-    return VarDecHandler(varDec, inputType);
+
+    RecordField* def = VarDecHandler(varDec, inputType);
+    defineVar(def, table, root->content.nonterminal.column);
+    return def;
 }
 
 /*
@@ -650,7 +654,9 @@ RecordField* ParamDecHandler(Node* root, SymbolTable* table) {
         varDec = GET_CHILD(root, 1);
         // FIXME: side effect here
         t = SpecifierHandler(specifier, table);
-        return VarDecHandler(varDec, t);
+        field = VarDecHandler(varDec, t);
+        defineVar(field, table, root->content.nonterminal.column);
+        return field;
     }
     CATCH_ALL
 }
@@ -661,19 +667,18 @@ RecordField* ParamDecHandler(Node* root, SymbolTable* table) {
  */
 void CompStHandler(Node* root, SymbolTable* table, Type* retType) {
     assert(root->tag == CompSt);
-    if (PATTERN4(root, _, DefList, StmtList, _)) {
+    if (root->content.nonterminal.childNum == 4) {   // { DefList StmtList }
+    // if (PATTERN4(root, _, DefList, StmtList, _)) {
         bool waste;
-        RecordField* def = DefListHandler(GET_CHILD(root, 1), table, &waste);
-        // add entry here
-        defineFieldList(def, table, root->content.nonterminal.column);
-        StmtListHandler(GET_CHILD(root, 2), *table, retType);
+        DefListHandler(GET_CHILD(root, 1), table, &waste);
+        StmtListHandler(GET_CHILD(root, 2), table, retType);
     }
     CATCH_ALL
 }
 
 void StmtListHandler(Node* root, SymbolTable* table, Type* retType) {
-    assert(root->tag == StmtList);
     if (root == NULL) { return; }
+    assert(root->tag == StmtList);
     if (PATTERN2(root, Stmt, StmtList)) {
         StmtHandler(GET_CHILD(root, 0), table, retType);
         StmtListHandler(GET_CHILD(root, 1), table, retType);
@@ -906,7 +911,7 @@ Type* ExpHandler(Node* root, SymbolTable table) {
  * @Nullable, for error case
  * quite special one, for ID (in expressions)
  */
-Type* IDHandler(Node* root, SymbolTable* table, enum IDKind kind) {
+Type* IDHandler(Node* root, SymbolTable table, enum IDKind kind) {
     assert(root->tag == TOKEN && root->content.terminal->tag == ID);
     assert(kind == ID_VAR || kind == ID_FUNC);
     SymbolTableNode* p;
@@ -1068,8 +1073,9 @@ void printSymbolTableNode(SymbolTableNode* node) {
     }
 }
 void printSymbolTable(SymbolTable t) {
+    printf("-------------------\n");
     for (; t != NULL; t = t->next) {
         printSymbolTableNode(t);
-        printf(",\n");
+        printf("-------------------\n");
     }
 }

@@ -91,8 +91,8 @@ Type* SpecifierHandler(Node* root, SymbolTable* table);
 Type* StructSpecifierHandler(Node* root, SymbolTable* table);
 RecordField* DefListHandler(Node* root, SymbolTable* table, bool* containsExp);
 RecordField* DefHandler(Node* root, SymbolTable* table, bool* containsExp);
-RecordField* DecListHandler(Node* root, Type* inputType, bool* containsExp);
-RecordField* DecHandler(Node* root, Type* inputType, bool* containsExp);
+RecordField* DecListHandler(Node* root, SymbolTable* table, Type* inputType, bool* containsExp);
+RecordField* DecHandler(Node* root, SymbolTable* table, Type* inputType, bool* containsExp);
 RecordField* VarDecHandler(Node* root, Type* inputType);
 
 void FunDecHandler(Node* root, SymbolTable* table, Type* retType, bool isDef);
@@ -104,7 +104,7 @@ void StmtListHandler(Node* root, SymbolTable* table, Type* retType);
 void StmtListHandler(Node* root, SymbolTable* table, Type* retType);
 void StmtHandler(Node* root, SymbolTable* table, Type* retType);
 Type* ExpHandler(Node* root, SymbolTable table);
-Type* IDHandler(Node* root, SymbolTable* table, enum IDKind kind);
+Type* IDHandler(Node* root, SymbolTable table, enum IDKind kind);
 Type* IDRecHandler(Node* root, Record* record);
 RecordField* ArgsHandler(Node* root, SymbolTable table);
 
