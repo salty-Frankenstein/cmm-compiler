@@ -23,6 +23,14 @@
     _PATTERN4(root, tag0, tag1, tag2, tag3) \
     && GET_CHILD(root, 4)->tag == tag4
 
+#define _PATTERN6(root, tag0, tag1, tag2, tag3, tag4, tag5) \
+    _PATTERN5(root, tag0, tag1, tag2, tag3, tag4) \
+    && GET_CHILD(root, 5)->tag == tag5
+
+#define _PATTERN7(root, tag0, tag1, tag2, tag3, tag4, tag5, tag6) \
+    _PATTERN6(root, tag0, tag1, tag2, tag3, tag4, tag5) \
+    && GET_CHILD(root, 6)->tag == tag6
+
 #define PATTERN(root, tag0) \
     root->content.nonterminal.childNum == 1 \
     && GET_CHILD(root, 0)->tag == tag0
@@ -42,6 +50,14 @@
 #define PATTERN5(root, tag0, tag1, tag2, tag3, tag4) \
     root->content.nonterminal.childNum == 5 \
     && _PATTERN5(root, tag0, tag1, tag2, tag3, tag4)
+
+#define PATTERN6(root, tag0, tag1, tag2, tag3, tag4, tag5) \
+    root->content.nonterminal.childNum == 6 \
+    && _PATTERN6(root, tag0, tag1, tag2, tag3, tag4, tag5)
+
+#define PATTERN7(root, tag0, tag1, tag2, tag3, tag4, tag5, tag6) \
+    root->content.nonterminal.childNum == 7 \
+    && _PATTERN7(root, tag0, tag1, tag2, tag3, tag4, tag5, tag6)
 
 /* error info handler */
 void raiseError(int errorType, int lineNo, const char* msg) {
@@ -64,10 +80,11 @@ void raiseError(int errorType, int lineNo, const char* msg) {
 CONS(Type, makePrimitiveType, PRIMITIVE, enum PrimTypeTag, primitive)
 CONS(Type, makeRecordType, RECORD, Record*, record)
 CONS(Type, makeArrayType, ARRAY, Array*, array)
+CONS(Type, makeFuncType, FUNC, FuncSignature*, func)
 
 CONS(SymbolTableEntry, makeStructEntry, S_STRUCT, NameTypePair*, structDef)
 CONS(SymbolTableEntry, makeVarEntry, S_VAR, NameTypePair*, varDef)
-CONS(SymbolTableEntry, makeFuncEntry, S_FUNC, FuncSignature*, funcDef)
+CONS(SymbolTableEntry, makeFuncEntry, S_FUNC, FunctionEntry*, funcDef)
 
 /* FieldList deep copy */
 RecordField* cloneFieldList(RecordField* rf) {
@@ -94,6 +111,10 @@ Type* cloneType(Type* t) {
         break;
     case ARRAY:
         res->content.array = makeArray(t->content.array->size, t->content.array->type);
+        break;
+    case FUNC:
+        res->content.func = makeFuncSignature(t->content.func->retType,
+            t->content.func->params);
         break;
     default:
         printf("<%d>\n", t->tag);
@@ -148,7 +169,9 @@ bool typeEqual(Type* t1, Type* t2) {
 
 // TODO: test this function
 // check two function signatures
-bool sameSignature(RecordField* p1, Type* retT1, RecordField* p2, Type* retT2) {
+bool sameSignature(FuncSignature s1, FuncSignature s2) {
+    Type* retT1 = s1.retType, * retT2 = s2.retType;
+    RecordField* p1 = s1.params, * p2 = s2.params;
     if (!typeEqual(retT1, retT2)) {
         return false;
     }
@@ -170,11 +193,18 @@ NameTypePair* makeNameTypePair(char* name, Type* type) {
 }
 
 /* DO **CONSUME** the `retType` and `params` */
-FuncSignature* makeFuncSignature(char* name, Type* retType, RecordField* params, bool defined) {
+FuncSignature* makeFuncSignature(Type* retType, RecordField* params) {
     NEW(FuncSignature, res);
-    NEW_NAME(res->name, name);
     res->retType = retType;
     res->params = params;
+    return res;
+}
+
+FunctionEntry* makeFunctionEntry(char* name, Type* t, bool defined) {
+    assert(t->tag == FUNC);
+    NEW(FunctionEntry, res);
+    NEW_NAME(res->name, name);
+    res->type = cloneType(t);
     res->defined = defined;
     return res;
 }
@@ -555,11 +585,11 @@ void FunDecHandler(Node* root, SymbolTable* table, Type* retType, bool isDef) {
                     return;
                 }
                 // no def-def conflict, check the signature
-                if (sameSignature(
-                    p->content->content.funcDef->params,
-                    p->content->content.funcDef->retType,
-                    paramList,
-                    retType)) {     // if matched
+                FuncSignature temp;
+                temp.params = paramList;
+                temp.retType = retType;
+                if (sameSignature(temp,
+                    *(p->content->content.funcDef->type->content.func))) {     // if matched
                     if (isDef) {    // if it is a definition, since there's no conflict
                         assert(!p->content->content.funcDef->defined);
                         // define this entry
@@ -584,7 +614,8 @@ void FunDecHandler(Node* root, SymbolTable* table, Type* retType, bool isDef) {
         }
     }
     // no previous entry found, then add a new entry
-    addEntry(table, makeFuncEntry(makeFuncSignature(funcName, retType, paramList, isDef)));
+    Type* funcType = makeFuncType(makeFuncSignature(retType, paramList));
+    addEntry(table, makeFuncEntry(makeFunctionEntry(funcName, funcType, isDef)));
 }
 
 /*
@@ -620,6 +651,99 @@ RecordField* ParamDecHandler(Node* root, SymbolTable* table) {
         // FIXME: side effect here
         t = SpecifierHandler(specifier, table);
         return VarDecHandler(varDec, t);
+    }
+    CATCH_ALL
+}
+
+/* statements & expressions */
+void CompStHandler(Node* root) {
+    assert(root->tag == CompSt);
+    if (PATTERN4(root, _, DefList, StmtList, _)) {
+
+    }
+    CATCH_ALL
+}
+
+void StmtListHandler(Node* root) {
+    assert(root->tag == StmtList);
+
+}
+
+void StmtHandler(Node* root) {
+    assert(root->tag == Stmt);
+    if (PATTERN2(root, Exp, _)) {        // Exp;
+
+    }
+    else if (PATTERN(root, CompSt)) {
+
+    }
+    else if (PATTERN3(root, _, Exp, _)) {    // return Exp;
+
+    }
+    else if (PATTERN5(root, _, _, Exp, _, Stmt)) {   // if(Exp) Stmt || while(Exp) Stmt
+
+    }
+    else if (PATTERN7(root, _, _, Exp, _, Stmt, _, Stmt)) {  // if(Exp) Stmt else Stmt
+
+    }
+    CATCH_ALL
+}
+/*
+ * pure, for type checking
+ * return type of the expression if checked
+ */
+Type* ExpHandler(Node* root, SymbolTable table) {
+    assert(root->tag == Exp);
+    if (PATTERN3(root, Exp, _, Exp)) {       // binary
+
+    }
+    else if (PATTERN3(root, _, Exp, _)) {    // (Exp)
+
+    }
+    else if (PATTERN2(root, _, Exp)) {       // -Exp & !Exp
+
+    }
+    else if (PATTERN4(root, _, _, Args, _)) {    // ID(Args)
+
+    }
+    else if (PATTERN3(root, _, _, _)) {      // ID()
+
+    }
+    else if (PATTERN4(root, Exp, _, Exp, _)) {   // Exp[Exp]
+
+    }
+    else if (PATTERN3(root, Exp, _, _)) {    // Exp.ID
+
+    }
+    else if (PATTERN(root, TOKEN)) {         // lit & id
+        Node* token = GET_CHILD(root, 0);
+        SymbolTableNode* p;
+        switch (token->content.terminal->tag) {
+        case ID:
+            /* lookup the table and return the type */
+            for (p = table; p != NULL; p = p->next) {
+                
+            }
+            break;
+        case INT:
+            return makePrimitiveType(T_INT);
+        case FLOAT:
+            return makePrimitiveType(T_FLOAT);
+        default:
+            assert(0);
+        }
+
+    }
+    CATCH_ALL
+}
+
+void ArgsHandler(Node* root) {
+    assert(root->tag == Args);
+    if (PATTERN(root, Exp)) {
+
+    }
+    else if (PATTERN3(root, Exp, _, Args)) {
+
     }
     CATCH_ALL
 }
@@ -678,14 +802,14 @@ void printSymbolTableNode(SymbolTableNode* node) {
     case S_FUNC:
         printf("func name: %s\n", node->content->content.funcDef->name);
         printf("return type:\n");
-        printType(node->content->content.funcDef->retType, 1);
-        if (node->content->content.funcDef->params == NULL) {
+        printType(node->content->content.funcDef->type->content.func->retType, 1);
+        if (node->content->content.funcDef->type->content.func->params == NULL) {
             printf("no params\n");
             break;
         }
         else {
             printf("params:\n");
-            for (p = node->content->content.funcDef->params;
+            for (p = node->content->content.funcDef->type->content.func->params;
                 p != NULL; p = p->next) {
                 printIndent_(1); printf("para name: %s\n", p->name);
                 printIndent_(1); printf("para type:\n");

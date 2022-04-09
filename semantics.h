@@ -22,15 +22,18 @@ typedef struct Array {
     struct Type* type;
 } Array;
 
-/* since functions are not first class,
- * we don't include function types here
- */
+typedef struct FuncSignature {
+    struct Type* retType;
+    RecordField* params;
+} FuncSignature;
+
 typedef struct Type {
-    enum { PRIMITIVE, RECORD, ARRAY } tag;
+    enum { PRIMITIVE, RECORD, ARRAY, FUNC } tag;
     union {
         enum PrimTypeTag primitive; // for primitive types
         Record* record;             // for structures
         Array* array;               // for arrays
+        FuncSignature* func;        // for functions
     } content;
 } Type;
 
@@ -47,20 +50,18 @@ typedef struct NameTypePair {
     Type* type;
 } NameTypePair;
 
-typedef struct FuncSignature {
+typedef struct FunctionEntry {
     char* name;
-    Type* retType;
-    RecordField* params;
-    bool defined;
-} FuncSignature;
+    Type* type;
+    bool defined;   // if the function has been defined
+} FunctionEntry;
 
-// TODO: separate the nested structrues out of the definition
 typedef struct SymbolTableEntry {
     enum SymbolTag tag;
     union {
         NameTypePair* structDef;    // for structure definitions
         NameTypePair* varDef;       // for variable definitions
-        FuncSignature* funcDef;      // for function def & dec
+        FunctionEntry* funcDef;      // for function def & dec
         // TODO:...
     } content;
 } SymbolTableEntry;
@@ -78,6 +79,8 @@ SymbolTable getSymbleTable(Node* parseTree);
 
 Record* makeRecord(char* name, RecordField* fieldList);
 Array* makeArray(int size, Type* type);
+FunctionEntry* makeFunctionEntry(char* name, Type* t, bool defined);
+FuncSignature* makeFuncSignature(Type* retType, RecordField* params);
 
 void ExtDefListHandler(Node* root, SymbolTable* table);
 void ExtDefHandler(Node* root, SymbolTable* table);
