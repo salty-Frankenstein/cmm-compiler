@@ -17,9 +17,9 @@ int main(int argc, char** argv) {
     Node *root;
     yyparse(&root);
     if(errorType == 0) {
-        printParseTree(root, 0);
+        // printParseTree(root, 0);
         SymbolTable t = getSymbleTable(root);
-        printSymbolTable(t);
+        // printSymbolTable(t);
     }
     return 0;
 }

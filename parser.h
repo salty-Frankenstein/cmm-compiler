@@ -8,6 +8,7 @@
 #define NEW_ARRAY(varType, varName, size) struct varType* varName = (struct varType*)malloc(size * sizeof(struct varType));
 #define GET_CHILD(root, num) (root->content.nonterminal.child[num])
 #define GET_TERMINAL(root, field) (root->content.terminal->content.field)
+#define GET_LINENO(root) (root->content.nonterminal.column)
 #define NAME_SIZE 64
 #define NEW_NAME(dest, source) \
     { dest = (char*)malloc(NAME_SIZE);\

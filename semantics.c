@@ -84,6 +84,7 @@ CONS(Type, makeFuncType, FUNC, FuncSignature*, func)
 
 CONS(SymbolTableEntry, makeStructEntry, S_STRUCT, NameTypePair*, structDef)
 CONS(SymbolTableEntry, makeVarEntry, S_VAR, NameTypePair*, varDef)
+CONS(SymbolTableEntry, makeFieldEntry, S_FIELD, NameTypePair*, varDef)
 CONS(SymbolTableEntry, makeFuncEntry, S_FUNC, FunctionEntry*, funcDef)
 
 /* FieldList deep copy */
@@ -200,18 +201,21 @@ FuncSignature* makeFuncSignature(Type* retType, RecordField* params) {
     return res;
 }
 
-FunctionEntry* makeFunctionEntry(char* name, Type* t, bool defined) {
+FunctionEntry* makeFunctionEntry(char* name, Type* t, bool defined, int lineNo) {
     assert(t->tag == FUNC);
     NEW(FunctionEntry, res);
     NEW_NAME(res->name, name);
     res->type = cloneType(t);
     res->defined = defined;
+    res->decLineNo = lineNo;
     return res;
 }
 
+// TODO: ownership
 RecordField* makeRecordField(char* name, Type* type, RecordField* next) {
     NEW(RecordField, res);
-    NEW_NAME(res->name, name);
+    res->name = name;
+    // NEW_NAME(res->name, name);
     res->type = cloneType(type);
     res->next = next;
     return res;
@@ -244,10 +248,22 @@ void addEntry(SymbolTable* table, SymbolTableEntry* newEntry) {
     *table = q;
 }
 
+// check all functions is well-defined
+void checkFuncDef(SymbolTable table) {
+    SymbolTableNode* p;
+    for(p = table; p != NULL; p = p->next) {
+        if(p->content->tag == S_FUNC
+        && !p->content->content.funcDef->defined) {
+            raiseError(18, p->content->content.funcDef->decLineNo, "error 18");
+        }
+    }
+}
+
 SymbolTable getSymbleTable(Node* root) {
     assert(root->tag == Program);
     SymbolTable res = NULL;
     ExtDefListHandler(GET_CHILD(root, 0), &res);
+    checkFuncDef(res);
     return res;
 }
 
@@ -258,7 +274,8 @@ void ExtDefListHandler(Node* root, SymbolTable* table) {
     ExtDefListHandler(GET_CHILD(root, 1), table);
 }
 
-void defineVar(RecordField* def, SymbolTable* table, int lineNo) {
+// `isField` for field definition
+void defineVar(RecordField* def, SymbolTable* table, int lineNo, bool isField) {
     SymbolTableNode* p;
     bool flag;
     // check the original table 
@@ -267,6 +284,13 @@ void defineVar(RecordField* def, SymbolTable* table, int lineNo) {
         if (p->content->tag == S_VAR
             && strcmp(p->content->content.varDef->name, def->name) == 0) {
             raiseError(3, lineNo, "error 3");
+            flag = true;
+            break;
+        }
+        // if field is already defined
+        if (isField && p->content->tag == S_FIELD
+            && strcmp(p->content->content.varDef->name, def->name) == 0) {
+            raiseError(15, lineNo, "error 15");
             flag = true;
             break;
         }
@@ -280,7 +304,12 @@ void defineVar(RecordField* def, SymbolTable* table, int lineNo) {
         // TODO: what if var-func conflict?
     }
     if (!flag) {    // if not defined
-        addEntry(table, makeVarEntry(makeNameTypePair(def->name, def->type)));
+        if (isField) {
+            addEntry(table, makeFieldEntry(makeNameTypePair(def->name, def->type)));
+        }
+        else {
+            addEntry(table, makeVarEntry(makeNameTypePair(def->name, def->type)));
+        }
     }
 }
 
@@ -393,16 +422,16 @@ Type* StructSpecifierHandler(Node* root, SymbolTable* table) {
             }
         }
         // no entry found, raise ERROR 17
-        raiseError(17, root->content.nonterminal.column, "error 17");
+        raiseError(17, GET_LINENO(root), "error 17");
         return NULL;
     }
     else if (root->content.nonterminal.childNum == 5) {
         // define new structure
         optTag = GET_CHILD(root, 1); // XXX: nullable
         defList = GET_CHILD(root, 3); // XXX: nullable
-        fieldList = DefListHandler(defList, table, &containsExp);
+        fieldList = DefListHandler(defList, table, &containsExp, true);
         if (containsExp) {
-            raiseError(15, root->content.nonterminal.column, "error 15");
+            raiseError(15, GET_LINENO(root), "error 15");
             return NULL;
         }
         // TODO: maybe refractor here
@@ -422,7 +451,7 @@ Type* StructSpecifierHandler(Node* root, SymbolTable* table) {
                 if (strcmp(GET_TERMINAL(tag, reprS),
                     p->content->content.structDef->name) == 0) {
                     // redefinition, raise ERROR 16
-                    raiseError(16, root->content.nonterminal.column, "error 16");
+                    raiseError(16, GET_LINENO(root), "error 16");
                     return NULL;
                 }
             }
@@ -453,14 +482,14 @@ Type* StructSpecifierHandler(Node* root, SymbolTable* table) {
   * @Nullable: return NULL, when `root` is NULL
   * return a list of fields
   */
-RecordField* DefListHandler(Node* root, SymbolTable* table, bool* containsExp) {
+RecordField* DefListHandler(Node* root, SymbolTable* table, bool* containsExp, bool isField) {
     if (root == NULL) { return NULL; }
     assert(root->tag == DefList);
     if (root->content.nonterminal.childNum == 2) {
         Node* def = GET_CHILD(root, 0);
         Node* defList = GET_CHILD(root, 1);
-        RecordField* x = DefHandler(def, table, containsExp);
-        RecordField* xs = DefListHandler(defList, table, containsExp);
+        RecordField* x = DefHandler(def, table, containsExp, isField);
+        RecordField* xs = DefListHandler(defList, table, containsExp, isField);
         x->next = xs;
         return x;
     }
@@ -471,13 +500,13 @@ RecordField* DefListHandler(Node* root, SymbolTable* table, bool* containsExp) {
  * @side effect
  * return a list of record fields
  */
-RecordField* DefHandler(Node* root, SymbolTable* table, bool* containsExp) {
+RecordField* DefHandler(Node* root, SymbolTable* table, bool* containsExp, bool isField) {
     assert(root->tag == Def);
     if (PATTERN3(root, Specifier, DecList, _)) {
         Node* specifier = GET_CHILD(root, 0);
         Node* decList = GET_CHILD(root, 1);
         Type* t = SpecifierHandler(specifier, table);
-        RecordField* res = DecListHandler(decList, table, t, containsExp);
+        RecordField* res = DecListHandler(decList, table, t, containsExp, isField);
         deleteType(t);
         return res;
     }
@@ -488,19 +517,19 @@ RecordField* DefHandler(Node* root, SymbolTable* table, bool* containsExp) {
  * @side effect: this method define the corresponding var list to the symbol table
  * return a list of record fields, `inputType` is a read-only ref
  */
-RecordField* DecListHandler(Node* root, SymbolTable* table, Type* inputType, bool* containsExp) {
+RecordField* DecListHandler(Node* root, SymbolTable* table, Type* inputType, bool* containsExp, bool isField) {
     assert(root->tag == DecList);
     Node* dec, * decList;
     RecordField* x, * xs;
     if (PATTERN(root, Dec)) {    // base case
         dec = GET_CHILD(root, 0);
-        return DecHandler(dec, table, cloneType(inputType), containsExp);
+        return DecHandler(dec, table, cloneType(inputType), containsExp, isField);
     }
     else if (PATTERN3(root, Dec, _, DecList)) {  // recursive case
         dec = GET_CHILD(root, 0);
         decList = GET_CHILD(root, 2);
-        x = DecHandler(dec, table, cloneType(inputType), containsExp);
-        xs = DecListHandler(decList, table, cloneType(inputType), containsExp);
+        x = DecHandler(dec, table, cloneType(inputType), containsExp, isField);
+        xs = DecListHandler(decList, table, cloneType(inputType), containsExp, isField);
         x->next = xs;
         return x;
     }
@@ -511,7 +540,7 @@ RecordField* DecListHandler(Node* root, SymbolTable* table, Type* inputType, boo
  * @side effect: this method define the corresponding var to the symbol table
  * XXX: this method **DO CONSUME** ownership of argument `inputType`
  */
-RecordField* DecHandler(Node* root, SymbolTable* table, Type* inputType, bool* containsExp) {
+RecordField* DecHandler(Node* root, SymbolTable* table, Type* inputType, bool* containsExp, bool isField) {
     assert(root->tag == Dec);
     Node* varDec = NULL;
     if (PATTERN(root, VarDec)) {
@@ -527,7 +556,7 @@ RecordField* DecHandler(Node* root, SymbolTable* table, Type* inputType, bool* c
     assert(varDec != NULL);
 
     RecordField* def = VarDecHandler(varDec, inputType);
-    defineVar(def, table, root->content.nonterminal.column);
+    defineVar(def, table, GET_LINENO(root), isField);
     return def;
 }
 
@@ -564,10 +593,11 @@ void FunDecHandler(Node* root, SymbolTable* table, Type* retType, bool isDef) {
         id = GET_CHILD(root, 0);
         funcName = GET_TERMINAL(id, reprS);
         varList = GET_CHILD(root, 2);
-        paramList = VarListHandler(varList, table);
+        paramList = VarListHandler(varList, table, isDef);
     }
     else if (PATTERN3(root, TOKEN, _, _)) {
         id = GET_CHILD(root, 0);
+        funcName = GET_TERMINAL(id, reprS);
         paramList = NULL;
     }
     CATCH_ALL;
@@ -580,7 +610,7 @@ void FunDecHandler(Node* root, SymbolTable* table, Type* retType, bool isDef) {
                 // if entry with same name found
                 if (isDef && p->content->content.funcDef->defined) {
                     // def-def conflict
-                    raiseError(4, root->content.nonterminal.column, "error 4");
+                    raiseError(4, GET_LINENO(root), "error 4");
                     return;
                 }
                 // no def-def conflict, check the signature
@@ -600,7 +630,7 @@ void FunDecHandler(Node* root, SymbolTable* table, Type* retType, bool isDef) {
                     }
                 }
                 else {
-                    raiseError(19, root->content.nonterminal.column, "error 19");
+                    raiseError(19, GET_LINENO(root), "error 19");
                     return;
                 }
             }
@@ -608,38 +638,38 @@ void FunDecHandler(Node* root, SymbolTable* table, Type* retType, bool isDef) {
         else if (p->content->tag == S_VAR
             && strcmp(p->content->content.varDef->name, funcName) == 0) {
             // this error is not required
-            raiseError(-1, root->content.nonterminal.column, "additional error");
+            raiseError(-1, GET_LINENO(root), "additional error");
             return;
         }
     }
     // no previous entry found, then add a new entry
     Type* funcType = makeFuncType(makeFuncSignature(retType, paramList));
-    addEntry(table, makeFuncEntry(makeFunctionEntry(funcName, funcType, isDef)));
+    addEntry(table, makeFuncEntry(makeFunctionEntry(funcName, funcType, isDef, GET_LINENO(root))));
 }
 
 /*
  * return a param field list
  */
-RecordField* VarListHandler(Node* root, SymbolTable* table) {
+RecordField* VarListHandler(Node* root, SymbolTable* table, bool isDef) {
     assert(root->tag == VarList);
     RecordField* x, * xs;
     if (PATTERN3(root, ParamDec, _, VarList)) { // recursive case
-        x = ParamDecHandler(GET_CHILD(root, 0), table);
-        xs = VarListHandler(GET_CHILD(root, 2), table);
+        x = ParamDecHandler(GET_CHILD(root, 0), table, isDef);
+        xs = VarListHandler(GET_CHILD(root, 2), table, isDef);
         x->next = xs;
         return x;
     }
     else if (PATTERN(root, ParamDec)) {         // base case
-        return ParamDecHandler(GET_CHILD(root, 0), table);
+        return ParamDecHandler(GET_CHILD(root, 0), table, isDef);
     }
     CATCH_ALL
 }
 
-// FIXME: make this function **PURE**
 /*
  * return a param field
+ * the parameters will be defined only when the function is defined
  */
-RecordField* ParamDecHandler(Node* root, SymbolTable* table) {
+RecordField* ParamDecHandler(Node* root, SymbolTable* table, bool isDef) {
     assert(root->tag == ParamDec);
     Node* specifier, * varDec;
     Type* t;
@@ -650,7 +680,9 @@ RecordField* ParamDecHandler(Node* root, SymbolTable* table) {
         // FIXME: side effect here
         t = SpecifierHandler(specifier, table);
         field = VarDecHandler(varDec, t);
-        defineVar(field, table, root->content.nonterminal.column);
+        if (isDef) {
+            defineVar(field, table, GET_LINENO(root), false);
+        }
         return field;
     }
     CATCH_ALL
@@ -665,7 +697,7 @@ void CompStHandler(Node* root, SymbolTable* table, Type* retType) {
     if (root->content.nonterminal.childNum == 4) {   // { DefList StmtList }
     // if (PATTERN4(root, _, DefList, StmtList, _)) {
         bool waste;
-        DefListHandler(GET_CHILD(root, 1), table, &waste);
+        DefListHandler(GET_CHILD(root, 1), table, &waste, false);
         StmtListHandler(GET_CHILD(root, 2), table, retType);
     }
     CATCH_ALL
@@ -691,7 +723,7 @@ void StmtHandler(Node* root, SymbolTable* table, Type* retType) {
     else if (PATTERN3(root, _, Exp, _)) {    // return Exp;
         Type* t = ExpHandler(GET_CHILD(root, 1), *table);
         if (t != NULL && !typeEqual(t, retType)) {
-            raiseError(8, root->content.nonterminal.column, "error 8");
+            raiseError(8, GET_LINENO(root), "error 8");
         }
         deleteType(t);
     }
@@ -746,7 +778,7 @@ Type* ExpHandler(Node* root, SymbolTable table) {
             do {
                 // check if the lhs is lval
                 if (!isLValue(GET_CHILD(root, 0))) {
-                    raiseError(6, root->content.nonterminal.column, "error 6");
+                    raiseError(6, GET_LINENO(root), "error 6");
                     break;
                 }
                 // match type
@@ -755,7 +787,7 @@ Type* ExpHandler(Node* root, SymbolTable table) {
                     return t2;
                 }
                 else {
-                    raiseError(5, root->content.nonterminal.column, "error 5");
+                    raiseError(5, GET_LINENO(root), "error 5");
                     break;
                 }
             } while (false);
@@ -782,7 +814,7 @@ Type* ExpHandler(Node* root, SymbolTable table) {
         }
         // oprand type not matched
         deleteType(t1); deleteType(t2);
-        raiseError(7, root->content.nonterminal.column, "error 7");
+        raiseError(7, GET_LINENO(root), "error 7");
         return NULL;
     }
     else if (PATTERN3(root, _, Exp, _)) {    // (Exp)
@@ -809,11 +841,11 @@ Type* ExpHandler(Node* root, SymbolTable table) {
             assert(0);
         }
         deleteType(t);
-        raiseError(7, root->content.nonterminal.column, "error 7");
+        raiseError(7, GET_LINENO(root), "error 7");
         return NULL;
     }
     else if (PATTERN4(root, _, _, Args, _)) {    // ID(Args)
-        Type* t = IDHandler(GET_CHILD(root, 0), table, ID_FUNC);
+        Type* t = IDHandler(GET_CHILD(root, 0), table, ID_FUNC, GET_LINENO(root));
         do {
             if (t == NULL) {
                 break;
@@ -821,7 +853,7 @@ Type* ExpHandler(Node* root, SymbolTable table) {
             // check signature
             if (t->tag == FUNC) {
                 if (t->content.func->params == NULL) {
-                    raiseError(9, root->content.nonterminal.column, "error 9");
+                    raiseError(9, GET_LINENO(root), "error 9");
                     break;
                 }
                 else {
@@ -830,7 +862,7 @@ Type* ExpHandler(Node* root, SymbolTable table) {
                     RecordField* p = t->content.func->params;
                     for (; a != NULL && p != NULL; a = a->next, p = p->next) {
                         if (!typeEqual(a->type, p->type)) {
-                            raiseError(9, root->content.nonterminal.column, "error 9");
+                            raiseError(9, GET_LINENO(root), "error 9");
                             break;
                         }
                     }
@@ -840,13 +872,13 @@ Type* ExpHandler(Node* root, SymbolTable table) {
                         return cloneType(t->content.func->retType);
                     }
                     else {
-                        raiseError(9, root->content.nonterminal.column, "error 9");
+                        raiseError(9, GET_LINENO(root), "error 9");
                         break;
                     }
                 }
             }
             else {
-                raiseError(11, root->content.nonterminal.column, "error 11");
+                raiseError(11, GET_LINENO(root), "error 11");
                 break;
             }
         } while (false);
@@ -854,7 +886,7 @@ Type* ExpHandler(Node* root, SymbolTable table) {
         return NULL;
     }
     else if (PATTERN3(root, _, _, _)) {      // ID()
-        Type* t = IDHandler(GET_CHILD(root, 0), table, ID_FUNC);
+        Type* t = IDHandler(GET_CHILD(root, 0), table, ID_FUNC, GET_LINENO(root));
         if (t == NULL) {
             return NULL;
         }
@@ -867,13 +899,13 @@ Type* ExpHandler(Node* root, SymbolTable table) {
             }
             else {
                 deleteType(t);
-                raiseError(9, root->content.nonterminal.column, "error 9");
+                raiseError(9, GET_LINENO(root), "error 9");
                 return NULL;
             }
         }
         else {
             deleteType(t);
-            raiseError(11, root->content.nonterminal.column, "error 11");
+            raiseError(11, GET_LINENO(root), "error 11");
             return NULL;
         }
     }
@@ -891,13 +923,13 @@ Type* ExpHandler(Node* root, SymbolTable table) {
             }
             else {
                 deleteType(t1); deleteType(t2);
-                raiseError(12, root->content.nonterminal.column, "error 12");
+                raiseError(12, GET_LINENO(root), "error 12");
                 return NULL;
             }
         }
         else {
             deleteType(t1); deleteType(t2);
-            raiseError(10, root->content.nonterminal.column, "error 10");
+            raiseError(10, GET_LINENO(root), "error 10");
             return NULL;
         }
     }
@@ -907,7 +939,7 @@ Type* ExpHandler(Node* root, SymbolTable table) {
             return NULL;
         }
         if (t1->tag == RECORD) {
-            Type* t2 = IDRecHandler(GET_CHILD(root, 2), t1->content.record);
+            Type* t2 = IDRecHandler(GET_CHILD(root, 2), t1->content.record, GET_LINENO(root));
             if (t2 == NULL) {
                 return NULL;
             }
@@ -915,7 +947,7 @@ Type* ExpHandler(Node* root, SymbolTable table) {
         }
         else {
             deleteType(t1);
-            raiseError(13, root->content.nonterminal.column, "error 13");
+            raiseError(13, GET_LINENO(root), "error 13");
             return NULL;
         }
     }
@@ -923,7 +955,7 @@ Type* ExpHandler(Node* root, SymbolTable table) {
         Node* token = GET_CHILD(root, 0);
         switch (token->content.terminal->tag) {
         case ID:
-            return IDHandler(token, table, ID_VAR);
+            return IDHandler(token, table, ID_VAR, GET_LINENO(root));
         case INT:
             return makePrimitiveType(T_INT);
         case FLOAT:
@@ -939,7 +971,7 @@ Type* ExpHandler(Node* root, SymbolTable table) {
  * @Nullable, for error case
  * quite special one, for ID (in expressions)
  */
-Type* IDHandler(Node* root, SymbolTable table, enum IDKind kind) {
+Type* IDHandler(Node* root, SymbolTable table, enum IDKind kind, int lineNo) {
     assert(root->tag == TOKEN && root->content.terminal->tag == ID);
     assert(kind == ID_VAR || kind == ID_FUNC);
     SymbolTableNode* p;
@@ -966,10 +998,10 @@ Type* IDHandler(Node* root, SymbolTable table, enum IDKind kind) {
     // not found, raise error
     switch (kind) {
     case ID_VAR:
-        raiseError(1, root->content.nonterminal.column, "error 1");
+        raiseError(1, lineNo, "error 1");
         break;
     case ID_FUNC:
-        raiseError(2, root->content.nonterminal.column, "error 2");
+        raiseError(2, lineNo, "error 2");
         break;
     default:
         assert(0);
@@ -982,7 +1014,7 @@ Type* IDHandler(Node* root, SymbolTable table, enum IDKind kind) {
  * same as above, but a record instead of symbol table
  * for structures
  */
-Type* IDRecHandler(Node* root, Record* record) {
+Type* IDRecHandler(Node* root, Record* record, int lineNo) {
     assert(root->tag == TOKEN && root->content.terminal->tag == ID);
     RecordField* p;
     for (p = record->fieldList; p != NULL; p = p->next) {
@@ -990,7 +1022,7 @@ Type* IDRecHandler(Node* root, Record* record) {
             return cloneType(p->type);
         }
     }
-    raiseError(14, root->content.nonterminal.column, "error 14");
+    raiseError(14, lineNo, "error 14");
     return NULL;
 }
 
@@ -1011,6 +1043,7 @@ RecordField* ArgsHandler(Node* root, SymbolTable table) {
         }
     }
     else if (PATTERN3(root, Exp, _, Args)) {
+        // assert(0);
         Type* t = ExpHandler(GET_CHILD(root, 0), table);
         if (t == NULL) {
             return NULL;
@@ -1105,7 +1138,13 @@ void printSymbolTableNode(SymbolTableNode* node) {
             }
             break;
         }
+    case S_FIELD:
+        printf("field name: %s\n", node->content->content.varDef->name);
+        printf("type:\n");
+        printType(node->content->content.varDef->type, 1);
+        break;
     }
+
 }
 void printSymbolTable(SymbolTable t) {
     printf("-------------------\n");
