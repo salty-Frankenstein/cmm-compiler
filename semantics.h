@@ -12,6 +12,8 @@ typedef struct RecordField {
 } RecordField;
 
 typedef struct Record {     // for structures
+    char* name;             // all record types have a name
+                            // for anonymous records, this field is NULL
     RecordField* fieldList; // a List of fields
 } Record;
 
@@ -20,6 +22,9 @@ typedef struct Array {
     struct Type* type;
 } Array;
 
+/* since functions are not first class, 
+ * we don't include function types here 
+ */
 typedef struct Type {
     enum { PRIMITIVE, RECORD, ARRAY } tag;
     union {
@@ -33,9 +38,11 @@ typedef struct Type {
 enum SymbolTag {
     S_STRUCT,           // for structure definitions
     S_VAR,              // for variable definitions
+    S_FUNC,             // for function def & dec
     // TODO:...
 };
 
+// TODO: separate the nested structrues out of the definition
 typedef struct SymbolTableEntry {
     enum SymbolTag tag;
     union {
@@ -47,6 +54,12 @@ typedef struct SymbolTableEntry {
             char* name;
             Type* type;
         } varDef;       // for variable definitions
+        struct {
+            char* name;
+            Type* retType;
+            RecordField* params;
+            bool defined;
+        } funcDef;      // for function def & dec
         // TODO:...
     } content;
 } SymbolTableEntry;
@@ -62,7 +75,7 @@ Type* cloneType(Type* t);
 RecordField* cloneFieldList(RecordField* rf);
 SymbolTable getSymbleTable(Node* parseTree);
 
-Record* makeRecord(RecordField* fieldList);
+Record* makeRecord(char* name, RecordField* fieldList);
 Array* makeArray(int size, Type* type);
 
 void ExtDefListHandler(Node* root, SymbolTable* table);
@@ -76,5 +89,11 @@ RecordField* DecListHandler(Node* root, Type* inputType, bool *containsExp);
 RecordField* DecHandler(Node* root, Type* inputType, bool *containsExp);
 RecordField* VarDecHandler(Node* root, Type* inputType);
 
+void FunDecHandler(Node* root, SymbolTable* table, Type* retType, bool isDef);
+RecordField* VarListHandler(Node* root, SymbolTable* table);
+RecordField* ParamDecHandler(Node* root, SymbolTable* table);
+
+
 void printSymbolTable(SymbolTable t);
 void printIndent_(int indent);
+void printType(Type* t, int indent);

@@ -153,6 +153,7 @@ ExtDefList : /* empty */ { $$ = NULL; }
 ExtDef : Specifier ExtDecList SEMI { $$ = makeNonterminalNode(@1.first_line, ExtDef, 3, $1, $2, $3); }
   | Specifier SEMI { $$ = makeNonterminalNode(@1.first_line, ExtDef, 2, $1, $2); }
   | Specifier FunDec CompSt { $$ = makeNonterminalNode(@1.first_line, ExtDef, 3, $1, $2, $3); }
+  | Specifier FunDec SEMI { $$ = makeNonterminalNode(@1.first_line, ExtDef, 3, $1, $2, $3); }
   | Specifier error
   ;
 ExtDecList : VarDec { $$ = makeNonterminalNode(@1.first_line, ExtDecList, 1, $1); }

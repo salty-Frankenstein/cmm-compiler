@@ -74,6 +74,7 @@ RecordField* cloneFieldList(RecordField* rf) {
     res->next = cloneFieldList(rf->next);
     return res;
 }
+
 /* type deep copy */
 Type* cloneType(Type* t) {
     if (t == NULL) { return NULL; }
@@ -84,7 +85,8 @@ Type* cloneType(Type* t) {
         res->content.primitive = t->content.primitive;
         break;
     case RECORD:
-        res->content.record = makeRecord(cloneFieldList(t->content.record->fieldList));
+        res->content.record = makeRecord(t->content.record->name,
+            cloneFieldList(t->content.record->fieldList));
         break;
     case ARRAY:
         res->content.array = makeArray(t->content.array->size, t->content.array->type);
@@ -100,6 +102,58 @@ Type* cloneType(Type* t) {
 /* delete a type and all nested types */
 void deleteType(Type* t) {
     // TODO
+}
+
+/* get base type and dimension information of an array type */
+void arrayInfo(Type* array, enum PrimTypeTag* baseType, int* dimension) {
+    assert(array->tag == ARRAY);
+    if (array->content.array->type->tag == PRIMITIVE) {
+        *baseType = array->content.array->type->content.primitive;
+        *dimension = 0;
+    }
+    else {
+        arrayInfo(array->content.array->type, baseType, dimension);
+        *dimension++;
+    }
+}
+
+// TODO: test this function
+/* t1 and t2 are not NULL */
+bool typeEqual(Type* t1, Type* t2) {
+    if (t1->tag != t2->tag) {
+        return false;
+    }
+    enum PrimTypeTag b1, b2;
+    int d1, d2;
+    switch (t1->tag) {
+    case PRIMITIVE:
+        return t1->content.primitive == t2->content.primitive;
+    case RECORD:    // name equivalence
+        if (t1->content.record->name == NULL || t2->content.record->name == NULL) {
+            return false;
+        }
+        return strcmp(t1->content.record->name, t2->content.record->name) == 0;
+    case ARRAY:
+        // compare the base type and dimension
+        arrayInfo(t1, &b1, &d1); arrayInfo(t2, &b2, &d2);
+        return b1 == b2 && d1 == d2;
+    default:
+        assert(0);
+    }
+}
+
+// TODO: test this function
+// check two function signatures
+bool sameSignature(RecordField* p1, Type* retT1, RecordField* p2, Type* retT2) {
+    if (!typeEqual(retT1, retT2)) {
+        return false;
+    }
+    for (; p1 != NULL && p2 != NULL; p1 = p1->next, p2 = p2->next) {
+        if (!typeEqual(p1->type, p2->type)) {
+            return false;
+        }
+    }
+    return p1 == NULL && p2 == NULL;
 }
 
 /* make symbol table entry methods, no argument ownership consumed */
@@ -119,6 +173,17 @@ SymbolTableEntry* makeVarEntry(char* name, Type* type) {
     return res;
 }
 
+/* DO **CONSUME** the `retType` and `params` */
+SymbolTableEntry* makeFuncEntry(char* name, Type* retType, RecordField* params, bool defined) {
+    NEW(SymbolTableEntry, res);
+    res->tag = S_FUNC;
+    NEW_NAME(res->content.funcDef.name, name);
+    res->content.funcDef.retType = retType;
+    res->content.funcDef.params = params;
+    res->content.funcDef.defined = defined;
+    return res;
+}
+
 RecordField* makeRecordField(char* name, Type* type, RecordField* next) {
     NEW(RecordField, res);
     NEW_NAME(res->name, name);
@@ -127,8 +192,14 @@ RecordField* makeRecordField(char* name, Type* type, RecordField* next) {
     return res;
 }
 
-Record* makeRecord(RecordField* fieldList) {
+Record* makeRecord(char* name, RecordField* fieldList) {
     NEW(Record, res);
+    if (name == NULL) {
+        res->name == NULL;
+    }
+    else {
+        NEW_NAME(res->name, name);
+    }
     res->fieldList = fieldList;
     return res;
 }
@@ -166,8 +237,8 @@ void ExtDefListHandler(Node* root, SymbolTable* table) {
 void ExtDefHandler(Node* root, SymbolTable* table) {
     assert(root->tag == ExtDef);
 
-    Node* specifier, * extDecList;
-    Type* t;
+    Node* specifier, * extDecList, * funDec, * compSt;
+    Type* t, * retType;
     RecordField* def;
     SymbolTableNode* p;
     bool flag;
@@ -205,8 +276,22 @@ void ExtDefHandler(Node* root, SymbolTable* table) {
         // side effect here, add entry if it is a struct def
         SpecifierHandler(specifier, table);
     }
-    else if (PATTERN3(root, Specifier, FunDec, CompSt)) { // ExtDef -> Specifier FuncDec CompSt
-        // TODO
+    else if (PATTERN3(root, Specifier, FunDec, CompSt)) { // function definition
+        specifier = GET_CHILD(root, 0);
+        funDec = GET_CHILD(root, 1);
+        compSt = GET_CHILD(root, 2);
+        // FIXME: side effect here, is it reasonable?
+        retType = SpecifierHandler(specifier, table);
+        FunDecHandler(funDec, table, retType, true);
+        // TODO: process the function body
+    }
+    else if (PATTERN3(root, Specifier, FunDec, TOKEN)) { // function declaration 
+        specifier = GET_CHILD(root, 0);
+        funDec = GET_CHILD(root, 1);
+        compSt = GET_CHILD(root, 2);
+        // FIXME: side effect here, is it reasonable?
+        retType = SpecifierHandler(specifier, table);
+        FunDecHandler(funDec, table, retType, false);
     }
     CATCH_ALL
 }
@@ -295,11 +380,18 @@ Type* StructSpecifierHandler(Node* root, SymbolTable* table) {
         defList = GET_CHILD(root, 3); // XXX: nullable
         if (defList != NULL) {
             fieldList = DefListHandler(defList, table, &containsExp);
-            if(containsExp) {
+            if (containsExp) {
                 raiseError(15, root->content.nonterminal.column, "error 15");
                 return NULL;
             }
-            t = makeRecordType(makeRecord(fieldList));
+            // TODO: maybe refractor here
+            if (optTag) {
+                char* name = GET_TERMINAL(GET_CHILD(optTag, 0), reprS);
+                t = makeRecordType(makeRecord(name, fieldList));
+            }
+            else {
+                t = makeRecordType(makeRecord(NULL, fieldList));
+            }
         }
         else {
             t = NULL;
@@ -344,7 +436,7 @@ Type* StructSpecifierHandler(Node* root, SymbolTable* table) {
   * @Nullable: return NULL, when `root` is NULL
   * return a list of fields
   */
-RecordField* DefListHandler(Node* root, SymbolTable* table, bool *containsExp) {
+RecordField* DefListHandler(Node* root, SymbolTable* table, bool* containsExp) {
     if (root == NULL) { return NULL; }
     assert(root->tag == DefList);
     if (root->content.nonterminal.childNum == 2) {
@@ -361,7 +453,7 @@ RecordField* DefListHandler(Node* root, SymbolTable* table, bool *containsExp) {
 /*
  * return a list of record fields
  */
-RecordField* DefHandler(Node* root, SymbolTable* table, bool *containsExp) {
+RecordField* DefHandler(Node* root, SymbolTable* table, bool* containsExp) {
     assert(root->tag == Def);
     if (PATTERN3(root, Specifier, DecList, _)) {
         Node* specifier = GET_CHILD(root, 0);
@@ -399,7 +491,7 @@ RecordField* DecListHandler(Node* root, Type* inputType, bool* containsExp) {
 /*
  * XXX: this method **DO CONSUME** ownership of argument `inputType`
  */
-RecordField* DecHandler(Node* root, Type* inputType, bool *containsExp) {
+RecordField* DecHandler(Node* root, Type* inputType, bool* containsExp) {
     assert(root->tag == Dec);
     Node* varDec = NULL;
     if (PATTERN(root, VarDec)) {
@@ -434,7 +526,108 @@ RecordField* VarDecHandler(Node* root, Type* inputType) {
         i = GET_CHILD(root, 2);
         at = makeArrayType(makeArray(GET_TERMINAL(i, intLit), inputType));
         return VarDecHandler(varDec, at);   // recursively construction
+    }
+    CATCH_ALL
+}
 
+/*
+ * This handler is for both definitions & declarations with the arg `isDec`
+ * DO CONSUME `retType`
+ */
+void FunDecHandler(Node* root, SymbolTable* table, Type* retType, bool isDef) {
+    assert(root->tag == FunDec);
+    Node* id, * varList;
+    RecordField* paramList;
+    char* funcName;
+    if (PATTERN4(root, TOKEN, _, VarList, _)) {
+        id = GET_CHILD(root, 0);
+        funcName = GET_TERMINAL(id, reprS);
+        varList = GET_CHILD(root, 2);
+        paramList = VarListHandler(varList, table);
+    }
+    else if (PATTERN3(root, TOKEN, _, _)) {
+        id = GET_CHILD(root, 0);
+        paramList = NULL;
+    }
+    CATCH_ALL;
+
+    SymbolTableNode* p;
+    // first check the table
+    for (p = *table; p != NULL; p = p->next) {
+        if (p->content->tag == S_FUNC) {
+            if (strcmp(p->content->content.funcDef.name, funcName) == 0) {
+                // if entry with same name found
+                if (isDef && p->content->content.funcDef.defined) {
+                    // def-def conflict
+                    raiseError(4, root->content.nonterminal.column, "error 4");
+                    return;
+                }
+                // no def-def conflict, check the signature
+                if (sameSignature(
+                    p->content->content.funcDef.params,
+                    p->content->content.funcDef.retType,
+                    paramList,
+                    retType)) {     // if matched
+                    if (isDef) {    // if it is a definition, since there's no conflict
+                        assert(!p->content->content.funcDef.defined);
+                        // define this entry
+                        p->content->content.funcDef.defined = true;
+                        return;
+                    }
+                    else {          // if it is a declaration
+                        return;     // then do nothing
+                    }
+                }
+                else {
+                    raiseError(19, root->content.nonterminal.column, "error 19");
+                    return;
+                }
+            }
+        }
+        else if (p->content->tag == S_VAR
+            && strcmp(p->content->content.varDef.name, funcName) == 0) {
+            // this error is not required
+            raiseError(-1, root->content.nonterminal.column, "additional error");
+            return;
+        }
+    }
+    // no previous entry found, then add a new entry
+    addEntry(table, makeFuncEntry(funcName, retType, paramList, isDef));
+}
+
+/*
+ * return a param field list
+ */
+RecordField* VarListHandler(Node* root, SymbolTable* table) {
+    assert(root->tag == VarList);
+    RecordField* x, * xs;
+    if (PATTERN3(root, ParamDec, _, VarList)) { // recursive case
+        x = ParamDecHandler(GET_CHILD(root, 0), table);
+        xs = VarListHandler(GET_CHILD(root, 2), table);
+        x->next = xs;
+        return x;
+    }
+    else if (PATTERN(root, ParamDec)) {         // base case
+        return ParamDecHandler(GET_CHILD(root, 0), table);
+    }
+    CATCH_ALL
+}
+
+// FIXME: make this function **PURE**
+/*
+ * return a param field
+ */
+RecordField* ParamDecHandler(Node* root, SymbolTable* table) {
+    assert(root->tag == ParamDec);
+    Node* specifier, * varDec;
+    Type* t;
+    RecordField* field;
+    if (PATTERN2(root, Specifier, VarDec)) {
+        specifier = GET_CHILD(root, 0);
+        varDec = GET_CHILD(root, 1);
+        // FIXME: side effect here
+        t = SpecifierHandler(specifier, table);
+        return VarDecHandler(varDec, t);
     }
     CATCH_ALL
 }
@@ -478,6 +671,7 @@ void printType(Type* t, int indent) {
 }
 
 void printSymbolTableNode(SymbolTableNode* node) {
+    RecordField* p;
     switch (node->content->tag) {
     case S_STRUCT:
         printf("struct name: %s\n", node->content->content.structDef.name);
@@ -489,6 +683,24 @@ void printSymbolTableNode(SymbolTableNode* node) {
         printf("type:\n");
         printType(node->content->content.varDef.type, 1);
         break;
+    case S_FUNC:
+        printf("func name: %s\n", node->content->content.funcDef.name);
+        printf("return type:\n");
+        printType(node->content->content.funcDef.retType, 1);
+        if (node->content->content.funcDef.params == NULL) {
+            printf("no params\n");
+            break;
+        }
+        else {
+            printf("params:\n");
+            for (p = node->content->content.funcDef.params;
+                p != NULL; p = p->next) {
+                printIndent_(1); printf("para name: %s\n", p->name);
+                printIndent_(1); printf("para type:\n");
+                printType(p->type, 2);
+            }
+            break;
+        }
     }
 }
 void printSymbolTable(SymbolTable t) {
