@@ -1,5 +1,3 @@
-int a(int b, float k);
-
-float a(int k, float b) {
+struct A {} a(int k, float b) {
 
 }

@@ -49,9 +49,10 @@ void raiseError(int errorType, int lineNo, const char* msg) {
     printf("Error type %d at Line %d: %s\n", errorType, lineNo, msg);
 }
 
-#define CONS_TYPE(consName, vtag, contentType, contentField) \
-    Type* consName(contentType i){\
-        NEW(Type, p)\
+/* a macro for generating constructors */
+#define CONS(retType, consName, vtag, contentType, contentField) \
+    retType* consName(contentType i){\
+        NEW(retType, p)\
         p->tag = vtag;\
         p->content.contentField = i;\
         return p;\
@@ -60,10 +61,13 @@ void raiseError(int errorType, int lineNo, const char* msg) {
 /* XXX: the following constructors are just wrappers
  * and **DO CONSUME** ownership of the argument
  */
-CONS_TYPE(makePrimitiveType, PRIMITIVE, enum PrimTypeTag, primitive)
-CONS_TYPE(makeRecordType, RECORD, Record*, record)
-CONS_TYPE(makeArrayType, ARRAY, Array*, array)
+CONS(Type, makePrimitiveType, PRIMITIVE, enum PrimTypeTag, primitive)
+CONS(Type, makeRecordType, RECORD, Record*, record)
+CONS(Type, makeArrayType, ARRAY, Array*, array)
 
+CONS(SymbolTableEntry, makeStructEntry, S_STRUCT, NameTypePair*, structDef)
+CONS(SymbolTableEntry, makeVarEntry, S_VAR, NameTypePair*, varDef)
+CONS(SymbolTableEntry, makeFuncEntry, S_FUNC, FuncSignature*, funcDef)
 
 /* FieldList deep copy */
 RecordField* cloneFieldList(RecordField* rf) {
@@ -156,31 +160,22 @@ bool sameSignature(RecordField* p1, Type* retT1, RecordField* p2, Type* retT2) {
     return p1 == NULL && p2 == NULL;
 }
 
-/* make symbol table entry methods, no argument ownership consumed */
-SymbolTableEntry* makeStructEntry(char* name, Type* type) {
-    NEW(SymbolTableEntry, res);
-    res->tag = S_STRUCT;
-    NEW_NAME(res->content.structDef.name, name);
-    res->content.structDef.type = cloneType(type);
-    return res;
-}
-
-SymbolTableEntry* makeVarEntry(char* name, Type* type) {
-    NEW(SymbolTableEntry, res);
-    res->tag = S_VAR;
-    NEW_NAME(res->content.varDef.name, name);
-    res->content.varDef.type = cloneType(type);
+// TODO: check all calls for ownership
+/* consume `type` */
+NameTypePair* makeNameTypePair(char* name, Type* type) {
+    NEW(NameTypePair, res);
+    NEW_NAME(res->name, name);
+    res->type = type;
     return res;
 }
 
 /* DO **CONSUME** the `retType` and `params` */
-SymbolTableEntry* makeFuncEntry(char* name, Type* retType, RecordField* params, bool defined) {
-    NEW(SymbolTableEntry, res);
-    res->tag = S_FUNC;
-    NEW_NAME(res->content.funcDef.name, name);
-    res->content.funcDef.retType = retType;
-    res->content.funcDef.params = params;
-    res->content.funcDef.defined = defined;
+FuncSignature* makeFuncSignature(char* name, Type* retType, RecordField* params, bool defined) {
+    NEW(FuncSignature, res);
+    NEW_NAME(res->name, name);
+    res->retType = retType;
+    res->params = params;
+    res->defined = defined;
     return res;
 }
 
@@ -253,21 +248,21 @@ void ExtDefHandler(Node* root, SymbolTable* table) {
             for (p = *table, flag = false; p != NULL; p = p->next) {
                 // if the variable has already been defined
                 if (p->content->tag == S_VAR
-                    && strcmp(p->content->content.varDef.name, def->name) == 0) {
+                    && strcmp(p->content->content.varDef->name, def->name) == 0) {
                     raiseError(3, root->content.nonterminal.column, "error 3");
                     flag = true;
                     break;
                 }
                 // if the variable has a same name as an exist structure
                 if (p->content->tag == S_STRUCT
-                    && strcmp(p->content->content.structDef.name, def->name)) {
+                    && strcmp(p->content->content.structDef->name, def->name)) {
                     raiseError(3, root->content.nonterminal.column, "error 3");
                     flag = true;
                     break;
                 }
             }
             if (!flag) {    // if not defined
-                addEntry(table, makeVarEntry(def->name, def->type));
+                addEntry(table, makeVarEntry(makeNameTypePair(def->name, def->type)));
             }
         }
     }
@@ -365,9 +360,9 @@ Type* StructSpecifierHandler(Node* root, SymbolTable* table) {
         for (p = *table; p != NULL; p = p->next) {
             if (p->content->tag != S_STRUCT) { continue; }
             if (strcmp(GET_TERMINAL(id, reprS),
-                p->content->content.structDef.name) == 0) {
+                p->content->content.structDef->name) == 0) {
                 // defined entry found, return a COPY type
-                return cloneType(p->content->content.structDef.type);
+                return cloneType(p->content->content.structDef->type);
             }
         }
         // no entry found, raise ERROR 17
@@ -403,7 +398,7 @@ Type* StructSpecifierHandler(Node* root, SymbolTable* table) {
             for (p = *table; p != NULL; p = p->next) {
                 if (p->content->tag != S_STRUCT) { continue; }
                 if (strcmp(GET_TERMINAL(tag, reprS),
-                    p->content->content.structDef.name) == 0) {
+                    p->content->content.structDef->name) == 0) {
                     // redefinition, raise ERROR 16
                     raiseError(16, root->content.nonterminal.column, "error 16");
                     return NULL;
@@ -411,7 +406,7 @@ Type* StructSpecifierHandler(Node* root, SymbolTable* table) {
             }
             // no entry found, define a new entry in the table
             // TODO: check ownership
-            SymbolTableEntry* e = makeStructEntry(GET_TERMINAL(tag, reprS), t);
+            SymbolTableEntry* e = makeStructEntry(makeNameTypePair(GET_TERMINAL(tag, reprS), t));
             addEntry(table, e);
         }
         else {          // otherwise
@@ -516,10 +511,7 @@ RecordField* VarDecHandler(Node* root, Type* inputType) {
     Type* at;
     if (PATTERN(root, TOKEN)) {  // ID
         id = GET_CHILD(root, 0);
-        return makeRecordField(
-            GET_TERMINAL(id, reprS),
-            inputType,
-            NULL);  // isolated node
+        return makeRecordField(GET_TERMINAL(id, reprS), inputType, NULL);  // isolated node
     }
     else if (PATTERN4(root, VarDec, _, TOKEN, _)) { // VarDec [ Int ]
         varDec = GET_CHILD(root, 0);
@@ -555,23 +547,23 @@ void FunDecHandler(Node* root, SymbolTable* table, Type* retType, bool isDef) {
     // first check the table
     for (p = *table; p != NULL; p = p->next) {
         if (p->content->tag == S_FUNC) {
-            if (strcmp(p->content->content.funcDef.name, funcName) == 0) {
+            if (strcmp(p->content->content.funcDef->name, funcName) == 0) {
                 // if entry with same name found
-                if (isDef && p->content->content.funcDef.defined) {
+                if (isDef && p->content->content.funcDef->defined) {
                     // def-def conflict
                     raiseError(4, root->content.nonterminal.column, "error 4");
                     return;
                 }
                 // no def-def conflict, check the signature
                 if (sameSignature(
-                    p->content->content.funcDef.params,
-                    p->content->content.funcDef.retType,
+                    p->content->content.funcDef->params,
+                    p->content->content.funcDef->retType,
                     paramList,
                     retType)) {     // if matched
                     if (isDef) {    // if it is a definition, since there's no conflict
-                        assert(!p->content->content.funcDef.defined);
+                        assert(!p->content->content.funcDef->defined);
                         // define this entry
-                        p->content->content.funcDef.defined = true;
+                        p->content->content.funcDef->defined = true;
                         return;
                     }
                     else {          // if it is a declaration
@@ -585,14 +577,14 @@ void FunDecHandler(Node* root, SymbolTable* table, Type* retType, bool isDef) {
             }
         }
         else if (p->content->tag == S_VAR
-            && strcmp(p->content->content.varDef.name, funcName) == 0) {
+            && strcmp(p->content->content.varDef->name, funcName) == 0) {
             // this error is not required
             raiseError(-1, root->content.nonterminal.column, "additional error");
             return;
         }
     }
     // no previous entry found, then add a new entry
-    addEntry(table, makeFuncEntry(funcName, retType, paramList, isDef));
+    addEntry(table, makeFuncEntry(makeFuncSignature(funcName, retType, paramList, isDef)));
 }
 
 /*
@@ -642,7 +634,7 @@ void printIndent_(int indent) {
 
 void printType(Type* t, int indent) {
     if (t == NULL) {
-        printIndent_(indent); printf("No type");
+        printIndent_(indent); printf("No type\n");
         return;
     }
     RecordField* l;
@@ -674,26 +666,26 @@ void printSymbolTableNode(SymbolTableNode* node) {
     RecordField* p;
     switch (node->content->tag) {
     case S_STRUCT:
-        printf("struct name: %s\n", node->content->content.structDef.name);
+        printf("struct name: %s\n", node->content->content.structDef->name);
         printf("type:\n");
-        printType(node->content->content.structDef.type, 1);
+        printType(node->content->content.structDef->type, 1);
         break;
     case S_VAR:
-        printf("var name: %s\n", node->content->content.varDef.name);
+        printf("var name: %s\n", node->content->content.varDef->name);
         printf("type:\n");
-        printType(node->content->content.varDef.type, 1);
+        printType(node->content->content.varDef->type, 1);
         break;
     case S_FUNC:
-        printf("func name: %s\n", node->content->content.funcDef.name);
+        printf("func name: %s\n", node->content->content.funcDef->name);
         printf("return type:\n");
-        printType(node->content->content.funcDef.retType, 1);
-        if (node->content->content.funcDef.params == NULL) {
+        printType(node->content->content.funcDef->retType, 1);
+        if (node->content->content.funcDef->params == NULL) {
             printf("no params\n");
             break;
         }
         else {
             printf("params:\n");
-            for (p = node->content->content.funcDef.params;
+            for (p = node->content->content.funcDef->params;
                 p != NULL; p = p->next) {
                 printIndent_(1); printf("para name: %s\n", p->name);
                 printIndent_(1); printf("para type:\n");

@@ -22,8 +22,8 @@ typedef struct Array {
     struct Type* type;
 } Array;
 
-/* since functions are not first class, 
- * we don't include function types here 
+/* since functions are not first class,
+ * we don't include function types here
  */
 typedef struct Type {
     enum { PRIMITIVE, RECORD, ARRAY } tag;
@@ -42,24 +42,25 @@ enum SymbolTag {
     // TODO:...
 };
 
+typedef struct NameTypePair {
+    char* name;
+    Type* type;
+} NameTypePair;
+
+typedef struct FuncSignature {
+    char* name;
+    Type* retType;
+    RecordField* params;
+    bool defined;
+} FuncSignature;
+
 // TODO: separate the nested structrues out of the definition
 typedef struct SymbolTableEntry {
     enum SymbolTag tag;
     union {
-        struct {
-            char* name;
-            Type* type;
-        } structDef;    // for structure definitions
-        struct {
-            char* name;
-            Type* type;
-        } varDef;       // for variable definitions
-        struct {
-            char* name;
-            Type* retType;
-            RecordField* params;
-            bool defined;
-        } funcDef;      // for function def & dec
+        NameTypePair* structDef;    // for structure definitions
+        NameTypePair* varDef;       // for variable definitions
+        FuncSignature* funcDef;      // for function def & dec
         // TODO:...
     } content;
 } SymbolTableEntry;
@@ -83,10 +84,10 @@ void ExtDefHandler(Node* root, SymbolTable* table);
 RecordField* ExtDecListHandler(Node* root, Type* inputType);
 Type* SpecifierHandler(Node* root, SymbolTable* table);
 Type* StructSpecifierHandler(Node* root, SymbolTable* table);
-RecordField* DefListHandler(Node* root, SymbolTable* table, bool *containsExp);
-RecordField* DefHandler(Node* root, SymbolTable* table, bool *containsExp);
-RecordField* DecListHandler(Node* root, Type* inputType, bool *containsExp);
-RecordField* DecHandler(Node* root, Type* inputType, bool *containsExp);
+RecordField* DefListHandler(Node* root, SymbolTable* table, bool* containsExp);
+RecordField* DefHandler(Node* root, SymbolTable* table, bool* containsExp);
+RecordField* DecListHandler(Node* root, Type* inputType, bool* containsExp);
+RecordField* DecHandler(Node* root, Type* inputType, bool* containsExp);
 RecordField* VarDecHandler(Node* root, Type* inputType);
 
 void FunDecHandler(Node* root, SymbolTable* table, Type* retType, bool isDef);
