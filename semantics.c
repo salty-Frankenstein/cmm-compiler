@@ -400,23 +400,18 @@ Type* StructSpecifierHandler(Node* root, SymbolTable* table) {
         // define new structure
         optTag = GET_CHILD(root, 1); // XXX: nullable
         defList = GET_CHILD(root, 3); // XXX: nullable
-        if (defList != NULL) {
-            fieldList = DefListHandler(defList, table, &containsExp);
-            if (containsExp) {
-                raiseError(15, root->content.nonterminal.column, "error 15");
-                return NULL;
-            }
-            // TODO: maybe refractor here
-            if (optTag) {
-                char* name = GET_TERMINAL(GET_CHILD(optTag, 0), reprS);
-                t = makeRecordType(makeRecord(name, fieldList));
-            }
-            else {
-                t = makeRecordType(makeRecord(NULL, fieldList));
-            }
+        fieldList = DefListHandler(defList, table, &containsExp);
+        if (containsExp) {
+            raiseError(15, root->content.nonterminal.column, "error 15");
+            return NULL;
+        }
+        // TODO: maybe refractor here
+        if (optTag) {
+            char* name = GET_TERMINAL(GET_CHILD(optTag, 0), reprS);
+            t = makeRecordType(makeRecord(name, fieldList));
         }
         else {
-            t = NULL;
+            t = makeRecordType(makeRecord(NULL, fieldList));
         }
         if (optTag) {   // if tag exists
             assert(optTag->tag == OptTag);
@@ -1025,10 +1020,17 @@ void printType(Type* t, int indent) {
         }
         break;
     case RECORD:
-        for (l = t->content.record->fieldList; l != NULL; l = l->next) {
-            printIndent_(indent); printf("field name: %s\n", l->name);
-            printIndent_(indent); printf("field type:\n");
-            printType(l->type, indent + 1);
+        printIndent_(indent); printf("name: %s\n", t->content.record->name);
+        l = t->content.record->fieldList;
+        if (l == NULL) {
+            printIndent_(indent); printf("empty record\n");
+        }
+        else {
+            for (; l != NULL; l = l->next) {
+                printIndent_(indent); printf("field name: %s\n", l->name);
+                printIndent_(indent); printf("field type:\n");
+                printType(l->type, indent + 1);
+            }
         }
         break;
     case ARRAY:
