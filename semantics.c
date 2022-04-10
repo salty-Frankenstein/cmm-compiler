@@ -251,9 +251,9 @@ void addEntry(SymbolTable* table, SymbolTableEntry* newEntry) {
 // check all functions is well-defined
 void checkFuncDef(SymbolTable table) {
     SymbolTableNode* p;
-    for(p = table; p != NULL; p = p->next) {
-        if(p->content->tag == S_FUNC
-        && !p->content->content.funcDef->defined) {
+    for (p = table; p != NULL; p = p->next) {
+        if (p->content->tag == S_FUNC
+            && !p->content->content.funcDef->defined) {
             raiseError(18, p->content->content.funcDef->decLineNo, "error 18");
         }
     }
@@ -775,22 +775,21 @@ Type* ExpHandler(Node* root, SymbolTable table) {
         }
         switch (GET_CHILD(root, 1)->content.terminal->tag) {
         case ASSIGNOP:
-            do {
-                // check if the lhs is lval
-                if (!isLValue(GET_CHILD(root, 0))) {
-                    raiseError(6, GET_LINENO(root), "error 6");
-                    break;
-                }
-                // match type
-                if (typeEqual(t1, t2)) {
-                    deleteType(t1);
-                    return t2;
-                }
-                else {
-                    raiseError(5, GET_LINENO(root), "error 5");
-                    break;
-                }
-            } while (false);
+            // check if the lhs is lval
+            if (!isLValue(GET_CHILD(root, 0))) {
+                raiseError(6, GET_LINENO(root), "error 6");
+                goto assignErr;
+            }
+            // match type
+            if (typeEqual(t1, t2)) {
+                deleteType(t1);
+                return t2;
+            }
+            else {
+                raiseError(5, GET_LINENO(root), "error 5");
+                goto assignErr;
+            }
+        assignErr:
             deleteType(t1); deleteType(t2);
             return NULL;
         case AND: case OR:
@@ -846,42 +845,41 @@ Type* ExpHandler(Node* root, SymbolTable table) {
     }
     else if (PATTERN4(root, _, _, Args, _)) {    // ID(Args)
         Type* t = IDHandler(GET_CHILD(root, 0), table, ID_FUNC, GET_LINENO(root));
-        do {
-            if (t == NULL) {
-                break;
-            }
-            // check signature
-            if (t->tag == FUNC) {
-                if (t->content.func->params == NULL) {
-                    raiseError(9, GET_LINENO(root), "error 9");
-                    break;
-                }
-                else {
-                    RecordField* args = ArgsHandler(GET_CHILD(root, 2), table);
-                    RecordField* a = args;
-                    RecordField* p = t->content.func->params;
-                    for (; a != NULL && p != NULL; a = a->next, p = p->next) {
-                        if (!typeEqual(a->type, p->type)) {
-                            raiseError(9, GET_LINENO(root), "error 9");
-                            break;
-                        }
-                    }
-                    if (a == NULL && p == NULL) {
-                        deleteType(t);
-                        // TODO: delete args
-                        return cloneType(t->content.func->retType);
-                    }
-                    else {
-                        raiseError(9, GET_LINENO(root), "error 9");
-                        break;
-                    }
-                }
+        RecordField* args = ArgsHandler(GET_CHILD(root, 2), table);
+        if (t == NULL || args == NULL) {
+            goto callArgsErr;
+        }
+        // check signature
+        if (t->tag == FUNC) {
+            if (t->content.func->params == NULL) {
+                raiseError(9, GET_LINENO(root), "error 9");
+                goto callArgsErr;
             }
             else {
-                raiseError(11, GET_LINENO(root), "error 11");
-                break;
+                RecordField* a = args;
+                RecordField* p = t->content.func->params;
+                for (; a != NULL && p != NULL; a = a->next, p = p->next) {
+                    if (!typeEqual(a->type, p->type)) {
+                        raiseError(9, GET_LINENO(root), "error 9");
+                        goto callArgsErr;
+                    }
+                }
+                if (a == NULL && p == NULL) {
+                    deleteType(t);
+                    // TODO: delete args
+                    return cloneType(t->content.func->retType);
+                }
+                else {
+                    raiseError(9, GET_LINENO(root), "error 9");
+                    goto callArgsErr;
+                }
             }
-        } while (false);
+        }
+        else {
+            raiseError(11, GET_LINENO(root), "error 11");
+            goto callArgsErr;
+        }
+    callArgsErr:
         deleteType(t);
         return NULL;
     }
