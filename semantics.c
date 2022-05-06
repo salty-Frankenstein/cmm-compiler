@@ -326,9 +326,10 @@ void ExtDefHandler(Node* root, SymbolTable* table) {
         specifier = GET_CHILD(root, 0);
         extDecList = GET_CHILD(root, 1);
         t = SpecifierHandler(specifier, table);
-        //TODO: eliminate this def
         // side effect here, add entries
         def = ExtDecListHandler(extDecList, t);
+        defineVar(def, table, GET_LINENO(root), false);
+
     }
     else if (PATTERN2(root, Specifier, _)) { // ExtDef -> Specifier SEMI
         specifier = GET_CHILD(root, 0);
@@ -489,8 +490,14 @@ RecordField* DefListHandler(Node* root, SymbolTable* table, bool* containsExp, b
         Node* def = GET_CHILD(root, 0);
         Node* defList = GET_CHILD(root, 1);
         RecordField* x = DefHandler(def, table, containsExp, isField);
+        // note that x is a list of record fields
+        // thus the xs should be appended to the tail of x, instead of `next`
         RecordField* xs = DefListHandler(defList, table, containsExp, isField);
-        x->next = xs;
+        RecordField* tail = x;
+        while(tail->next != NULL) {
+            tail = tail->next;
+        }
+        tail->next = xs;
         return x;
     }
     CATCH_ALL
@@ -548,8 +555,8 @@ RecordField* DecHandler(Node* root, SymbolTable* table, Type* inputType, bool* c
     }
     else if (PATTERN3(root, VarDec, _, Exp)) {
         // TODO: what to do with the Exp?
-        // TODO: check the exp
         varDec = GET_CHILD(root, 0);
+        Type* t = ExpHandler(GET_CHILD(root, 2), *table);
         *containsExp = true;
     }
     CATCH_ALL;
@@ -800,7 +807,16 @@ Type* ExpHandler(Node* root, SymbolTable table) {
                 return makePrimitiveType(T_INT);
             }
             break;
-        case RELOP: case PLUS: case MINUS: case STAR: case DIV:
+        case RELOP:
+            // relation operators, only for int-int or float-float
+            // but returns int
+            if (t1->tag == PRIMITIVE && t2->tag == PRIMITIVE
+                && t1->content.primitive == t2->content.primitive) {
+                deleteType(t1); deleteType(t2);
+                return makePrimitiveType(T_INT);
+            }
+            break;
+        case PLUS: case MINUS: case STAR: case DIV:
             // arithmetic operators, only for int-int or float-float
             if (t1->tag == PRIMITIVE && t2->tag == PRIMITIVE
                 && t1->content.primitive == t2->content.primitive) {
