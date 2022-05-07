@@ -2,6 +2,8 @@
 #define PARSER_H
 
 #include "syntax.tab.h"
+#include "common.h"
+#include <stdlib.h>
 
 #define NEW(varType, varName) \
   struct varType* varName = (struct varType*)malloc(sizeof(struct varType));
@@ -65,8 +67,5 @@ struct Token* makeRelOp(enum RelOpTag);
 struct Token* makeToken(YYTOKENTYPE);
 void printParseTree(struct Node* root, int indent);
 
-#ifndef NULL
-#define NULL 0
-#endif
 
 #endif

@@ -1,7 +1,4 @@
-typedef int bool;
-#define true 1
-#define false 0
-
+#include "common.h"
 enum IDKind { ID_VAR, ID_FIELD, ID_FUNC };
 
 /* Type definitions */

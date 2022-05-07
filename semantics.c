@@ -65,15 +65,6 @@ void raiseError(int errorType, int lineNo, char* msg) {
     printf("Error type %d at Line %d: %s\n", errorType, lineNo, msg);
 }
 
-/* a macro for generating constructors */
-#define CONS(retType, consName, vtag, contentType, contentField) \
-    retType* consName(contentType i){\
-        NEW(retType, p)\
-        p->tag = vtag;\
-        p->content.contentField = i;\
-        return p;\
-    }
-
 /* XXX: the following constructors are just wrappers
  * and **DO CONSUME** ownership of the argument
  */

@@ -3,10 +3,13 @@
 #include "syntax.tab.h"
 #include "parser.h"
 #include "semantics.h"
+#include "ir.h"
 
 extern FILE* yyin;
 
 int main(int argc, char** argv) {
+    printIR(testIR());
+    return 0;
     if (argc <= 1) { return 1; }
     FILE* f = fopen(argv[1], "r");
     if (!f) {
