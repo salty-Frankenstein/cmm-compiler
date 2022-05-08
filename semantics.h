@@ -1,3 +1,6 @@
+#ifndef SEMANTICS_H
+#define SEMANTICS_H
+
 #include "common.h"
 enum IDKind { ID_VAR, ID_FIELD, ID_FUNC };
 
@@ -110,3 +113,5 @@ RecordField* ArgsHandler(Node* root, SymbolTable table);
 void printSymbolTable(SymbolTable t);
 void printIndent_(int indent);
 void printType(Type* t, int indent);
+
+#endif

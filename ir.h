@@ -1,5 +1,7 @@
 #ifndef IR_H
 #define IR_H
+#include"parser.h"
+#include"semantics.h"
 
 enum OprandKind { OP_VAR, OP_LIT, OP_LABEL };
 typedef struct Oprand {
@@ -35,7 +37,25 @@ typedef struct IR {
     struct IRNode* tail;    // the last node of the list
 } IR;
 
+struct ArgList {
+    Oprand* argVal;
+    struct ArgList* next;
+};
+typedef struct ArgList ArgList;
+
+void translateProgram(IR* target, Node* root, SymbolTable table);
+void translateExtDefList(IR* target, Node* root, SymbolTable table);
+void translateExtDef(IR* target, Node* root, SymbolTable table);
+void translateFuncParam(IR* target, Node* root, SymbolTable table);
+ArgList* translateArgs(IR* target, Node* root, SymbolTable table);
+void translateExp(IR* target, Node* root, SymbolTable table, Oprand* place);
+void translateCond(IR* target, Node* root, Oprand* labelTrue, Oprand* labelFalse, SymbolTable table);
+void translateStmt(IR* target, Node* root, SymbolTable table);
+void translateCompSt(IR* target, Node* root, SymbolTable table);
+void translateStmtList(IR* target, Node* root, SymbolTable table);
+
 void printIR(const IR* ir);
+IR* makeIR();
 IR* testIR();
 
 #endif

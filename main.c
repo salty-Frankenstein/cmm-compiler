@@ -8,8 +8,6 @@
 extern FILE* yyin;
 
 int main(int argc, char** argv) {
-    printIR(testIR());
-    return 0;
     if (argc <= 1) { return 1; }
     FILE* f = fopen(argv[1], "r");
     if (!f) {
@@ -20,9 +18,12 @@ int main(int argc, char** argv) {
     Node *root;
     yyparse(&root);
     if(errorType == 0) {
-        // printParseTree(root, 0);
+        printParseTree(root, 0);
         SymbolTable t = getSymbleTable(root);
         // printSymbolTable(t);
+        IR* ir = makeIR();
+        translateProgram(ir, root, t);
+        printIR(ir);
     }
     return 0;
 }
