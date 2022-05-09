@@ -181,6 +181,27 @@ void writeInst(IR* target, const Instruction* inst) {
     target->tail = target->tail->next;
 }
 
+void insertInst(IR* target, IRNode* node, const Instruction* inst) {
+    // printf("<");
+    // printInst(inst);
+    // printf(", ");
+    // printInst(target->inst);
+    // printf(", ");
+    // if(target->next == NULL) {
+    //     printf("NULL");
+    // }
+    // else {
+    //     printInst(target->next->inst);
+    // }
+    // printf("> \n");
+    IRNode* p = node->next;
+    node->next = makeIRNode(inst);
+    node->next->next = p;
+    if (target->tail == node) {
+        target->tail = node->next;
+    }
+}
+
 IR* testIR() {
     IR* res = makeIR();
     writeInst(res, makeUnaryInst(I_FUNC, makeLabelOp("main")));
@@ -348,8 +369,10 @@ void translateExp(IR* target, Node* root, SymbolTable table, Oprand* place) {
             writeInst(target, makeBinaryInst(I_ASSGN, place, makeLitOp(0)));
         }
         else {
+            IRNode* p = target->tail;
+            // in a reversed order
             for (; args != NULL; args = args->next) {
-                writeInst(target, makeUnaryInst(I_ARG, args->argVal));
+                insertInst(target, p, makeUnaryInst(I_ARG, args->argVal));
             }
             writeInst(target, makeBinaryInst(I_CALL, place, makeLabelOp(fname)));
         }
