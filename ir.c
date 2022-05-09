@@ -251,7 +251,10 @@ void translateExtDef(IR* target, Node* root, SymbolTable table) {
         // TODO: what to do?
     }
     else if (PATTERN3(root, Specifier, FunDec, CompSt)) { // function definition
-        translateFuncParam(target, GET_CHILD(root, 1), table);
+        Node* funDec = GET_CHILD(root, 1);
+        char* fname = GET_TERMINAL(GET_CHILD(funDec, 0), reprS);
+        writeInst(target, makeUnaryInst(I_FUNC, makeLabelOp(fname)));
+        translateFuncParam(target, funDec, table);
         translateCompSt(target, GET_CHILD(root, 2), table);
     }
     else if (PATTERN3(root, Specifier, FunDec, TOKEN)) { // function declaration 

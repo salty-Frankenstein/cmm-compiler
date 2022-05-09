@@ -5,10 +5,13 @@
 #include<stdlib.h>
 #include<string.h>
 
+bool semanticsError = false;
+
 /* error info handler */
 void raiseError(int errorType, int lineNo, char* msg) {
     assert(errorType > 0 && errorType <= 19);
     printf("Error type %d at Line %d: %s\n", errorType, lineNo, msg);
+    semanticsError = true;
 }
 
 /* XXX: the following constructors are just wrappers
@@ -196,9 +199,23 @@ void checkFuncDef(SymbolTable table) {
     }
 }
 
+// create the initial table with predefined function `read` & `write`
+SymbolTable initSymbolTable() {
+    SymbolTable t = NULL;
+    char* readName, * writeName;
+    NEW_NAME(readName, "read");
+    NEW_NAME(writeName, "write");
+    Type* readType = makeFuncType(makeFuncSignature(makePrimitiveType(T_INT), NULL));
+    RecordField* writeParam = makeRecordField("dummy", makePrimitiveType(T_INT), NULL);
+    Type* writeType = makeFuncType(makeFuncSignature(makePrimitiveType(T_INT), writeParam));
+    addEntry(&t, makeFuncEntry(makeFunctionEntry(readName, readType, true, 0)));
+    addEntry(&t, makeFuncEntry(makeFunctionEntry(writeName, writeType, true, 0)));
+    return t;
+}
+
 SymbolTable getSymbleTable(Node* root) {
     assert(root->tag == Program);
-    SymbolTable res = NULL;
+    SymbolTable res = initSymbolTable();
     ExtDefListHandler(GET_CHILD(root, 0), &res);
     checkFuncDef(res);
     return res;
@@ -431,7 +448,7 @@ RecordField* DefListHandler(Node* root, SymbolTable* table, bool* containsExp, b
         // thus the xs should be appended to the tail of x, instead of `next`
         RecordField* xs = DefListHandler(defList, table, containsExp, isField);
         RecordField* tail = x;
-        while(tail->next != NULL) {
+        while (tail->next != NULL) {
             tail = tail->next;
         }
         tail->next = xs;

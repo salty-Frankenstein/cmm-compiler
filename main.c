@@ -15,15 +15,17 @@ int main(int argc, char** argv) {
         return 1;
     }
     yyrestart(f);
-    Node *root;
+    Node* root;
     yyparse(&root);
-    if(errorType == 0) {
-        printParseTree(root, 0);
+    if (errorType == 0) {
+        // printParseTree(root, 0);
         SymbolTable t = getSymbleTable(root);
         // printSymbolTable(t);
-        IR* ir = makeIR();
-        translateProgram(ir, root, t);
-        printIR(ir);
+        if (!semanticsError) {
+            IR* ir = makeIR();
+            translateProgram(ir, root, t);
+            printIR(ir);
+        }
     }
     return 0;
 }

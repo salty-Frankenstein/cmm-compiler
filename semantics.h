@@ -2,6 +2,8 @@
 #define SEMANTICS_H
 
 #include "common.h"
+
+extern bool semanticsError;
 enum IDKind { ID_VAR, ID_FIELD, ID_FUNC };
 
 /* Type definitions */
