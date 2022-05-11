@@ -44,6 +44,8 @@ struct ArgList {
 };
 typedef struct ArgList ArgList;
 
+int getElemSize(Type* arrayT);
+
 void translateProgram(IR* target, Node* root, SymbolTable table);
 void translateExtDefList(IR* target, Node* root, SymbolTable table);
 void translateExtDef(IR* target, Node* root, SymbolTable table);

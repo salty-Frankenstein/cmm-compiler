@@ -130,7 +130,7 @@ void printInst(FILE* out, const Instruction* i) {
     case I_DIV: printArith(out, i, " / "); break;
     case I_ADDR: printOp1StrOp2(out, i, " := &"); break;
     case I_LOAD: printOp1StrOp2(out, i, " := *"); break;
-    case I_SAVE: printOp1StrOp2(out, i, "* := "); break;
+    case I_SAVE: fprintf(out, "*"); printOp1StrOp2(out, i, " := "); break;
     case I_GOTO: printStrOp1(out, i, "GOTO "); break;
     case I_EQGOTO: printRelGoto(out, i, " == "); break;
     case I_NEGOTO: printRelGoto(out, i, " != "); break;
@@ -182,18 +182,6 @@ void writeInst(IR* target, const Instruction* inst) {
 }
 
 void insertInst(IR* target, IRNode* node, const Instruction* inst) {
-    // printf("<");
-    // printInst(inst);
-    // printf(", ");
-    // printInst(target->inst);
-    // printf(", ");
-    // if(target->next == NULL) {
-    //     printf("NULL");
-    // }
-    // else {
-    //     printInst(target->next->inst);
-    // }
-    // printf("> \n");
     IRNode* p = node->next;
     node->next = makeIRNode(inst);
     node->next->next = p;
@@ -245,10 +233,12 @@ void translateExtDefList(IR* target, Node* root, SymbolTable table) {
 void translateExtDef(IR* target, Node* root, SymbolTable table) {
     assert(root->tag == ExtDef);
     if (PATTERN3(root, Specifier, ExtDecList, _)) { // ExtDef -> Specifier ExtDecList SEMI
-        // TODO: what to do?
+        // no global variables, as guaranteed
+        assert(0);
     }
     else if (PATTERN2(root, Specifier, _)) { // ExtDef -> Specifier SEMI
-        // TODO: what to do?
+        // no global variables, as guaranteed
+        assert(0);
     }
     else if (PATTERN3(root, Specifier, FunDec, CompSt)) { // function definition
         Node* funDec = GET_CHILD(root, 1);
@@ -281,7 +271,7 @@ void translateFuncParam(IR* target, Node* root, SymbolTable table) {
         }
         assert(fs != NULL);
         RecordField* q;
-        for(q = fs->params; q != NULL; q = q->next) {
+        for (q = fs->params; q != NULL; q = q->next) {
             writeInst(target, makeUnaryInst(I_PARAM, makeVarOp(q->name)));
         }
     }
@@ -312,6 +302,65 @@ ArgList* translateArgs(IR* target, Node* root, SymbolTable table) {
     CATCH_ALL
 }
 
+// a helper function calculating the element size of an array type
+int getElemSize(Type* arrayT) {
+    assert(arrayT->tag == ARRAY);
+    switch (arrayT->content.array->type->tag) {
+    case PRIMITIVE: return 4;
+    case ARRAY:
+    {
+        Type* elem = arrayT->content.array->type;
+        return getElemSize(elem) * elem->content.array->size;
+    }
+    case FUNC: case RECORD: assert(0);     // not supported yet
+    default: assert(0);
+    }
+}
+
+// quite special one, only works for `Exp -> ID | Exp[Exp]`
+// generates code that calculates the **address** of the array exp
+// returns the remainder dimensions' type of the for the current continuation
+Type* translateArray(IR* target, Node* root, SymbolTable table, Oprand* place) {
+    assert(root->tag == Exp);
+    // ID, the base case of the array expression structure
+    if (PATTERN(root, TOKEN)
+        && GET_CHILD(root, 0)->content.terminal->tag == ID) {
+        char* varName = GET_TERMINAL(GET_CHILD(root, 0), reprS);
+        // get the array base address
+        writeInst(target, makeBinaryInst(I_ADDR, place, makeVarOp(varName)));
+        // lookup the table and return the type of the whole array
+        SymbolTableNode* p;
+        for (p = table; p != NULL; p = p->next) {
+            if (p->content->tag == S_VAR &&
+                strcmp(p->content->content.varDef->name, varName) == 0) {
+                return p->content->content.varDef->type;
+            }
+        }
+        assert(0);
+    }
+    // recursive case, calculate the current dimension
+    else if (PATTERN4(root, Exp, _, Exp, _)) {  // Exp[Exp]
+        Oprand* t1 = newTempVar();
+        // first calculate the address of the previous dimensions
+        // save to $t1
+        Type* arrayType = translateArray(target, GET_CHILD(root, 0), table, t1);
+        // get the element size of the current dimension, just a static value
+        int size = getElemSize(arrayType);
+        Oprand* t2 = newTempVar();
+        // calculate the index, save to $t2
+        translateExp(target, GET_CHILD(root, 2), table, t2);
+        // multiply by the element size
+        writeInst(target, makeTernaryInst(I_MUL, t2, t2, makeLitOp(size)));
+        // then add on the offset of the current dimension
+        writeInst(target, makeTernaryInst(I_ADD, place, t1, t2));
+        return arrayType->content.array->type;  // return the remainder type
+    }
+    else {
+        // there is no other way to form an array expression (?)
+        assert(0);
+    }
+}
+
 #define DO_TRANSLATE_ARITH(tag) \
     do {\
         assert(tag == I_ADD || tag == I_SUB || tag == I_MUL || tag == I_DIV);   \
@@ -329,6 +378,7 @@ void translateExp(IR* target, Node* root, SymbolTable table, Oprand* place) {
         Node* exp2 = GET_CHILD(root, 2);
         switch (GET_CHILD(root, 1)->content.terminal->tag) {
         case ASSIGNOP:
+            // variable case
             if (PATTERN(exp1, _)) {
                 Node* token = GET_CHILD(exp1, 0);
                 assert(token->content.terminal->tag == ID);
@@ -337,8 +387,21 @@ void translateExp(IR* target, Node* root, SymbolTable table, Oprand* place) {
                 translateExp(target, exp2, table, t1);
                 writeInst(target, makeBinaryInst(I_ASSGN, makeVarOp(v), t1));
                 writeInst(target, makeBinaryInst(I_ASSGN, place, makeVarOp(v)));
-                return;
             }
+            // array case
+            else if (PATTERN4(exp1, Exp, _, Exp, _)) {
+                // first calculate the address
+                Oprand* addr = newTempVar();
+                translateArray(target, exp1, table, addr);
+                // then calculate the rhs
+                Oprand* rhs = newTempVar();
+                translateExp(target, exp2, table, rhs);
+                // then save
+                writeInst(target, makeBinaryInst(I_SAVE, addr, rhs));
+                // the expression value
+                writeInst(target, makeBinaryInst(I_ASSGN, place, rhs));
+            }
+            break;
         case PLUS: DO_TRANSLATE_ARITH(I_ADD); break;
         case MINUS: DO_TRANSLATE_ARITH(I_SUB); break;
         case STAR: DO_TRANSLATE_ARITH(I_MUL); break;
@@ -390,11 +453,15 @@ void translateExp(IR* target, Node* root, SymbolTable table, Oprand* place) {
         }
     }
     else if (PATTERN4(root, Exp, _, Exp, _)) {   // Exp[Exp]
-        // TODO
-        assert(0);
+        // right value here, the left-value case is handled in assign expr
+        // first calculate the address
+        Oprand* addr = newTempVar();
+        translateArray(target, root, table, addr);
+        // then dereference
+        writeInst(target, makeBinaryInst(I_LOAD, place, addr));
     }
     else if (PATTERN3(root, Exp, _, _)) {    // Exp.ID
-        // TODO
+        printf("record field is not available");
         assert(0);
     }
     else if (PATTERN(root, TOKEN)) {         // lit & id, base case
@@ -501,8 +568,8 @@ void translateStmt(IR* target, Node* root, SymbolTable table) {
         return;
     }
     else if (PATTERN(root, CompSt)) {
-        // TODO
-        assert(0);
+        translateCompSt(target, GET_CHILD(root, 0), table);
+        return;
     }
     else if (PATTERN3(root, _, Exp, _)) {    // return Exp;
         Oprand* t1 = newTempVar();
@@ -554,10 +621,82 @@ void translateStmt(IR* target, Node* root, SymbolTable table) {
     CATCH_ALL
 }
 
+// just lookup the symbol table, and return the corresponding definition
+NameTypePair* getVarEntry(Node* root, SymbolTable table) {
+    assert(root->tag == VarDec);
+    if (PATTERN(root, TOKEN)) {
+        char* name = GET_TERMINAL(GET_CHILD(root, 0), reprS);
+        SymbolTableNode* p;
+        for (p = table; p != NULL; p = p->next) {
+            if (p->content->tag == S_VAR
+                && strcmp(p->content->content.varDef->name, name) == 0) {
+                return p->content->content.varDef;
+            }
+        }
+        assert(0);
+    }
+    else if (PATTERN4(root, VarDec, _, TOKEN, _)) { // VarDec [ Int ]
+        return getVarEntry(GET_CHILD(root, 0), table);
+    }
+    CATCH_ALL
+}
+
+void translateDec(IR* target, Node* root, SymbolTable table) {
+    assert(root->tag == Dec);
+    if (PATTERN(root, VarDec)) {
+        // check array here
+        NameTypePair* e = getVarEntry(GET_CHILD(root, 0), table);
+        if (e->type->tag == ARRAY) {
+            char* name = e->name;
+            int size = getElemSize(e->type) * e->type->content.array->size;
+            writeInst(target, makeBinaryInst(I_DEC, makeVarOp(name), makeLitOp(size)));
+        }
+    }
+    else if (PATTERN3(root, VarDec, _, Exp)) {
+        // initialize here
+        NameTypePair* e = getVarEntry(GET_CHILD(root, 0), table);
+        char* name = e->name;
+        Oprand* rhs = newTempVar();
+        translateExp(target, GET_CHILD(root, 2), table, rhs);
+        writeInst(target, makeBinaryInst(I_ASSGN, makeVarOp(name), rhs));
+    }
+    CATCH_ALL
+}
+
+void translateDecList(IR* target, Node* root, SymbolTable table) {
+    assert(root->tag == DecList);
+    if (PATTERN(root, Dec)) {
+        translateDec(target, GET_CHILD(root, 0), table);
+    }
+    else if (PATTERN3(root, Dec, _, DecList)) {
+        translateDec(target, GET_CHILD(root, 0), table);
+        translateDecList(target, GET_CHILD(root, 2), table);
+    }
+    CATCH_ALL
+}
+
+void translateDef(IR* target, Node* root, SymbolTable table) {
+    assert(root->tag == Def);
+    if (PATTERN3(root, Specifier, DecList, _)) {
+        translateDecList(target, GET_CHILD(root, 1), table);
+    }
+    CATCH_ALL
+}
+
+void translateDefList(IR* target, Node* root, SymbolTable table) {
+    if (root == NULL) return;
+    assert(root->tag == DefList);
+    if (root->content.nonterminal.childNum == 2) {
+        translateDef(target, GET_CHILD(root, 0), table);
+        translateDefList(target, GET_CHILD(root, 1), table);
+    }
+    CATCH_ALL
+}
+
 void translateCompSt(IR* target, Node* root, SymbolTable table) {
     assert(root->tag == CompSt);
     if (root->content.nonterminal.childNum == 4) {  // { DefList StmtList }
-        // TODO: what to do with the definitions?
+        translateDefList(target, GET_CHILD(root, 1), table);
         translateStmtList(target, GET_CHILD(root, 2), table);
     }
     CATCH_ALL
