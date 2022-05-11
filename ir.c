@@ -86,78 +86,78 @@ Instruction* makeTernaryInst(enum InstKind tag, Oprand* op1, Oprand* op2, Oprand
     return res;
 }
 
-void printOprand(const Oprand* op) {
+void printOprand(FILE* out, const Oprand* op) {
     switch (op->tag) {
-    case OP_LABEL: printf("%s", op->content.label); break;
-    case OP_LIT: printf("#%d", op->content.lit); break;
-    case OP_VAR: printf("%s", op->content.name); break;
+    case OP_LABEL: fprintf(out, "%s", op->content.label); break;
+    case OP_LIT: fprintf(out, "#%d", op->content.lit); break;
+    case OP_VAR: fprintf(out, "%s", op->content.name); break;
     default: assert(0);
     }
 }
 
-void printStrOp1(const Instruction* i, const char* str) {
-    printf(str);
-    printOprand(GET_OP(i, 0));
+void printStrOp1(FILE* out, const Instruction* i, const char* str) {
+    fprintf(out, str);
+    printOprand(out, GET_OP(i, 0));
 }
 
-void printOp1StrOp2(const Instruction* i, const char* str) {
-    printOprand(GET_OP(i, 0));
-    printf(str);
-    printOprand(GET_OP(i, 1));
+void printOp1StrOp2(FILE* out, const Instruction* i, const char* str) {
+    printOprand(out, GET_OP(i, 0));
+    fprintf(out, str);
+    printOprand(out, GET_OP(i, 1));
 }
 
-void printArith(const Instruction* i, const char* op) {
-    printOp1StrOp2(i, " := ");
-    printf(op);
-    printOprand(GET_OP(i, 2));
+void printArith(FILE* out, const Instruction* i, const char* op) {
+    printOp1StrOp2(out, i, " := ");
+    fprintf(out, op);
+    printOprand(out, GET_OP(i, 2));
 }
 
-void printRelGoto(const Instruction* i, const char* op) {
-    printf("IF ");
-    printOp1StrOp2(i, op);
-    printf(" GOTO ");
-    printOprand(GET_OP(i, 2));
+void printRelGoto(FILE* out, const Instruction* i, const char* op) {
+    fprintf(out, "IF ");
+    printOp1StrOp2(out, i, op);
+    fprintf(out, " GOTO ");
+    printOprand(out, GET_OP(i, 2));
 }
 
-void printInst(const Instruction* i) {
+void printInst(FILE* out, const Instruction* i) {
     switch (i->tag) {
-    case I_LABEL: printStrOp1(i, "LABEL "); printf(" :"); break;
-    case I_FUNC: printStrOp1(i, "FUNCTION "); printf(" :"); break;
-    case I_ASSGN: printOp1StrOp2(i, " := "); break;
-    case I_ADD: printArith(i, " + "); break;
-    case I_SUB: printArith(i, " - "); break;
-    case I_MUL: printArith(i, " * "); break;
-    case I_DIV: printArith(i, " / "); break;
-    case I_ADDR: printOp1StrOp2(i, " := &"); break;
-    case I_LOAD: printOp1StrOp2(i, " := *"); break;
-    case I_SAVE: printOp1StrOp2(i, "* := "); break;
-    case I_GOTO: printStrOp1(i, "GOTO "); break;
-    case I_EQGOTO: printRelGoto(i, " == "); break;
-    case I_NEGOTO: printRelGoto(i, " != "); break;
-    case I_LTGOTO: printRelGoto(i, " < "); break;
-    case I_GTGOTO: printRelGoto(i, " > "); break;
-    case I_LEGOTO: printRelGoto(i, " <= "); break;
-    case I_GEGOTO: printRelGoto(i, " >= "); break;
-    case I_RET: printStrOp1(i, "RETURN "); break;
+    case I_LABEL: printStrOp1(out, i, "LABEL "); fprintf(out, " :"); break;
+    case I_FUNC: printStrOp1(out, i, "FUNCTION "); fprintf(out, " :"); break;
+    case I_ASSGN: printOp1StrOp2(out, i, " := "); break;
+    case I_ADD: printArith(out, i, " + "); break;
+    case I_SUB: printArith(out, i, " - "); break;
+    case I_MUL: printArith(out, i, " * "); break;
+    case I_DIV: printArith(out, i, " / "); break;
+    case I_ADDR: printOp1StrOp2(out, i, " := &"); break;
+    case I_LOAD: printOp1StrOp2(out, i, " := *"); break;
+    case I_SAVE: printOp1StrOp2(out, i, "* := "); break;
+    case I_GOTO: printStrOp1(out, i, "GOTO "); break;
+    case I_EQGOTO: printRelGoto(out, i, " == "); break;
+    case I_NEGOTO: printRelGoto(out, i, " != "); break;
+    case I_LTGOTO: printRelGoto(out, i, " < "); break;
+    case I_GTGOTO: printRelGoto(out, i, " > "); break;
+    case I_LEGOTO: printRelGoto(out, i, " <= "); break;
+    case I_GEGOTO: printRelGoto(out, i, " >= "); break;
+    case I_RET: printStrOp1(out, i, "RETURN "); break;
     case I_DEC:
-        printStrOp1(i, "DEC ");
-        printf(" %d ", GET_OP(i, 1)->content.lit);
+        printStrOp1(out, i, "DEC ");
+        fprintf(out, " %d ", GET_OP(i, 1)->content.lit);
         break;
-    case I_ARG: printStrOp1(i, "ARG "); break;
-    case I_CALL: printOp1StrOp2(i, " := CALL "); break;
-    case I_PARAM: printStrOp1(i, "PARAM "); break;
-    case I_READ: printStrOp1(i, "READ "); break;
-    case I_WRITE: printStrOp1(i, "WRITE "); break;
+    case I_ARG: printStrOp1(out, i, "ARG "); break;
+    case I_CALL: printOp1StrOp2(out, i, " := CALL "); break;
+    case I_PARAM: printStrOp1(out, i, "PARAM "); break;
+    case I_READ: printStrOp1(out, i, "READ "); break;
+    case I_WRITE: printStrOp1(out, i, "WRITE "); break;
     default:assert(0);
     }
 }
 
-void printIR(const IR* ir) {
+void printIR(FILE* out, const IR* ir) {
     IRNode* i;
     // skip the first dummy node
     for (i = ir->head->next; i != NULL; i = i->next) {
-        printInst(i->inst);
-        printf("\n");
+        printInst(out, i->inst);
+        fprintf(out, "\n");
     }
 }
 

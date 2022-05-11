@@ -2,6 +2,7 @@
 #define IR_H
 #include"parser.h"
 #include"semantics.h"
+#include<stdio.h>
 
 enum OprandKind { OP_VAR, OP_LIT, OP_LABEL };
 typedef struct Oprand {
@@ -54,7 +55,7 @@ void translateStmt(IR* target, Node* root, SymbolTable table);
 void translateCompSt(IR* target, Node* root, SymbolTable table);
 void translateStmtList(IR* target, Node* root, SymbolTable table);
 
-void printIR(const IR* ir);
+void printIR(FILE* out, const IR* ir);
 IR* makeIR();
 IR* testIR();
 

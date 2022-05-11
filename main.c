@@ -8,10 +8,15 @@
 extern FILE* yyin;
 
 int main(int argc, char** argv) {
-    if (argc <= 1) { return 1; }
+    if (argc <= 2) { return 1; }
     FILE* f = fopen(argv[1], "r");
+    FILE* outFile = fopen(argv[2], "w");
     if (!f) {
         perror(argv[1]);
+        return 1;
+    }
+    if (!outFile) {
+        perror(argv[2]);
         return 1;
     }
     yyrestart(f);
@@ -24,9 +29,11 @@ int main(int argc, char** argv) {
         if (!semanticsError) {
             IR* ir = makeIR();
             translateProgram(ir, root, t);
-            printIR(ir);
+            printIR(outFile, ir);
         }
     }
+    fclose(f);
+    fclose(outFile);
     return 0;
 }
 
