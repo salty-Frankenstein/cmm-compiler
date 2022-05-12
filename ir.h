@@ -57,6 +57,7 @@ void translateStmt(IR* target, Node* root, SymbolTable table);
 void translateCompSt(IR* target, Node* root, SymbolTable table);
 void translateStmtList(IR* target, Node* root, SymbolTable table);
 Type* translateArray(IR* target, Node* root, SymbolTable table, Oprand* place);
+Oprand* doTranslateArith(IR* target, Oprand* op1, Oprand* op2, Oprand* place, enum InstKind tag);
 
 void printIR(FILE* out, const IR* ir);
 IR* makeIR();
@@ -69,6 +70,13 @@ IR* testIR();
     do {\
         Oprand* e = translateExp(target, root, table, place); \
         place = e == NULL ? place : e; \
+    } while(0);
+
+#define DO_TRANSLATE_ARITH(target, atag, op1, op2, table, place) \
+    Oprand* place = newTempVar(); \
+    do {\
+        Oprand* e = doTranslateArith(target, op1, op2, place, atag); \
+        place = e == NULL ? place : e;\
     } while(0);
 
 #endif

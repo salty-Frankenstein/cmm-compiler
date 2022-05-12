@@ -346,11 +346,10 @@ Type* translateArray(IR* target, Node* root, SymbolTable table, Oprand* place) {
         int size = getElemSize(arrayType);
         // calculate the index, save to $t2
         DO_TRANSLATE_EXP(target, GET_CHILD(root, 2), table, t2);
-        Oprand* t3 = newTempVar();
         // multiply by the element size
-        writeInst(target, makeTernaryInst(I_MUL, t3, t2, makeLitOp(size)));
+        DO_TRANSLATE_ARITH(target, I_MUL, t2, makeLitOp(size), table, t3);
         // then add on the offset of the current dimension
-        writeInst(target, makeTernaryInst(I_ADD, place, t1, t3));
+        doTranslateArith(target, t1, t3, place, I_ADD);
         return arrayType->content.array->type;  // return the remainder type
     }
     else {
@@ -359,14 +358,51 @@ Type* translateArray(IR* target, Node* root, SymbolTable table, Oprand* place) {
     }
 }
 
-#define DO_TRANSLATE_ARITH(tag) \
-    do {\
-        assert(tag == I_ADD || tag == I_SUB || tag == I_MUL || tag == I_DIV);   \
-        DO_TRANSLATE_EXP(target, exp1, table, t1);  \
-        DO_TRANSLATE_EXP(target, exp2, table, t2);  \
-        writeInst(target, makeTernaryInst(tag, place, t1, t2));   \
-    } while(0);
+Oprand* foldConstant(Oprand* t1, Oprand* t2, enum InstKind tag) {
+    assert(tag == I_ADD || tag == I_SUB || tag == I_MUL || tag == I_DIV);
+    if (t1->tag == OP_LIT && t2->tag == OP_LIT) {
+        // fold here
+        switch (tag) {
+        case I_ADD: return makeLitOp(t1->content.lit + t2->content.lit);
+        case I_SUB: return makeLitOp(t1->content.lit - t2->content.lit);
+        case I_MUL: return makeLitOp(t1->content.lit * t2->content.lit);
+        case I_DIV: return NULL;
+        default: assert(0);
+        }
+    }
+}
 
+// use this function to perform constant folding
+// op1 && op2 is lit, then return fold
+// otherwise, store to place if place != NULL, and return NULL
+Oprand* doTranslateArith(IR* target, Oprand* op1, Oprand* op2, Oprand* place, enum InstKind tag) {
+    assert(tag == I_ADD || tag == I_SUB || tag == I_MUL || tag == I_DIV);
+    Oprand* res = foldConstant(op1, op2, tag);
+    if (res != NULL) { return res; }
+    else {
+        if (place != NULL) {
+            writeInst(target, makeTernaryInst(tag, place, op1, op2));
+        }
+        return NULL;
+    }
+}
+
+// use this function to perform constant folding
+Oprand* translateArith(IR* target, Node* exp1, Node* exp2, SymbolTable table,
+    Oprand* place, enum InstKind tag) {
+    assert(tag == I_ADD || tag == I_SUB || tag == I_MUL || tag == I_DIV);
+    assert(exp1->tag == Exp && exp2->tag == Exp);
+    DO_TRANSLATE_EXP(target, exp1, table, t1);
+    DO_TRANSLATE_EXP(target, exp2, table, t2);
+    Oprand* res = foldConstant(t1, t2, tag);
+    if (res != NULL) { return res; }
+    else {
+        if (place != NULL) {
+            writeInst(target, makeTernaryInst(tag, place, t1, t2));
+        }
+        return NULL;
+    }
+}
 
 // optimization: for lit & id, just return the corresponding oprand, which saves one instruction
 // for the other cases, save the result to `place`, and return `NULL`
@@ -404,10 +440,10 @@ Oprand* translateExp(IR* target, Node* root, SymbolTable table, Oprand* place) {
                 }
             }
             break;
-        case PLUS: DO_TRANSLATE_ARITH(I_ADD); break;
-        case MINUS: DO_TRANSLATE_ARITH(I_SUB); break;
-        case STAR: DO_TRANSLATE_ARITH(I_MUL); break;
-        case DIV: DO_TRANSLATE_ARITH(I_DIV); break;
+        case PLUS:return translateArith(target, exp1, exp2, table, place, I_ADD);
+        case MINUS:return translateArith(target, exp1, exp2, table, place, I_SUB);
+        case STAR:return translateArith(target, exp1, exp2, table, place, I_MUL);
+        case DIV:return translateArith(target, exp1, exp2, table, place, I_DIV);
         case RELOP: case AND: case OR: goto cond_expr;
         default: assert(0);
         }
@@ -420,10 +456,7 @@ Oprand* translateExp(IR* target, Node* root, SymbolTable table, Oprand* place) {
         case MINUS:
         {
             DO_TRANSLATE_EXP(target, GET_CHILD(root, 1), table, t1);
-            if (place != NULL) {
-                writeInst(target, makeTernaryInst(I_SUB, place, makeLitOp(0), t1));
-            }
-            break;
+            return doTranslateArith(target, makeLitOp(0), t1, place, I_SUB);
         }
         case NOT: goto cond_expr;
         default: assert(0);
@@ -500,7 +533,7 @@ Oprand* translateExp(IR* target, Node* root, SymbolTable table, Oprand* place) {
 cond_expr:
     {
         // TODO: how to eliminate the NULL `place` here?
-        if(place == NULL) { place = newTempVar(); }
+        if (place == NULL) { place = newTempVar(); }
         Oprand* l1 = newLabel();
         Oprand* l2 = newLabel();
         writeInst(target, makeBinaryInst(I_ASSGN, place, makeLitOp(0)));
