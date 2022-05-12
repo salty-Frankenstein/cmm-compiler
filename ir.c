@@ -190,16 +190,6 @@ void insertInst(IR* target, IRNode* node, const Instruction* inst) {
     }
 }
 
-IR* testIR() {
-    IR* res = makeIR();
-    writeInst(res, makeUnaryInst(I_FUNC, makeLabelOp("main")));
-    writeInst(res, makeUnaryInst(I_READ, makeVarOp("t1")));
-    writeInst(res, makeBinaryInst(I_ASSGN, makeVarOp("v1"), makeVarOp("t1")));
-    writeInst(res, makeBinaryInst(I_ASSGN, makeVarOp("t2"), makeLitOp(0)));
-
-    return res;
-}
-
 /* yield a fresh temp variable */
 Oprand* newTempVar() {
     static int no = 0;
@@ -234,11 +224,13 @@ void translateExtDef(IR* target, Node* root, SymbolTable table) {
     assert(root->tag == ExtDef);
     if (PATTERN3(root, Specifier, ExtDecList, _)) { // ExtDef -> Specifier ExtDecList SEMI
         // no global variables, as guaranteed
-        assert(0);
+        printf("global variables are not supported\n");
+        exit(0);
     }
     else if (PATTERN2(root, Specifier, _)) { // ExtDef -> Specifier SEMI
         // no global variables, as guaranteed
-        assert(0);
+        printf("global variables are not supported\n");
+        exit(0);
     }
     else if (PATTERN3(root, Specifier, FunDec, CompSt)) { // function definition
         Node* funDec = GET_CHILD(root, 1);
@@ -249,7 +241,7 @@ void translateExtDef(IR* target, Node* root, SymbolTable table) {
     }
     else if (PATTERN3(root, Specifier, FunDec, TOKEN)) { // function declaration 
         printf("function declaration is not available");
-        assert(0);
+        exit(0);
     }
 }
 
@@ -310,7 +302,9 @@ int getElemSize(Type* arrayT) {
         Type* elem = arrayT->content.array->type;
         return getElemSize(elem) * elem->content.array->size;
     }
-    case FUNC: case RECORD: assert(0);     // not supported yet
+    case FUNC: case RECORD: 
+        printf("function or struct as array elements is not supported\n");
+        exit(0);
     default: assert(0);
     }
 }
@@ -358,7 +352,8 @@ Type* translateArray(IR* target, Node* root, SymbolTable table, Oprand* place) {
     }
     else {
         // there is no other way to form an array expression (?)
-        assert(0);
+        printf("unavailable array expression found.\n");
+        exit(0);
     }
 }
 
@@ -482,7 +477,8 @@ Oprand* translateExp(IR* target, Node* root, SymbolTable table, Oprand* place) {
             }
             else {
                 // no struct here
-                assert(0);
+                printf("structures are not supported\n");
+                exit(0);
             }
             break;
         }
@@ -554,7 +550,7 @@ Oprand* translateExp(IR* target, Node* root, SymbolTable table, Oprand* place) {
     }
     else if (PATTERN3(root, Exp, _, _)) {    // Exp.ID
         printf("record field is not available");
-        assert(0);
+        exit(0);
     }
     else if (PATTERN(root, TOKEN)) {         // lit & id, base case
         Node* token = GET_CHILD(root, 0);
@@ -569,7 +565,7 @@ Oprand* translateExp(IR* target, Node* root, SymbolTable table, Oprand* place) {
             return makeVarOp(v);
         case FLOAT:
             printf("float literal is not available");
-            assert(0);
+            exit(0);
         default: assert(0);
         }
     }

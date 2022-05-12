@@ -61,7 +61,6 @@ Oprand* doTranslateArith(IR* target, Oprand* op1, Oprand* op2, Oprand* place, en
 
 void printIR(FILE* out, const IR* ir);
 IR* makeIR();
-IR* testIR();
 
 // use this macro instead of using `translateExp` directly
 // the result will be in `place`, note that it may not be a variable

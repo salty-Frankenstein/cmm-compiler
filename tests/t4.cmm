@@ -4,6 +4,7 @@ int main() {
   int x[10];
   int y[5];
   int i = 0;
+  read();
   while (i < 5) {
     y[i] = i;
     i = i + 1;
