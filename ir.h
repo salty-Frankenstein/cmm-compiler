@@ -56,6 +56,7 @@ void translateCond(IR* target, Node* root, Oprand* labelTrue, Oprand* labelFalse
 void translateStmt(IR* target, Node* root, SymbolTable table);
 void translateCompSt(IR* target, Node* root, SymbolTable table);
 void translateStmtList(IR* target, Node* root, SymbolTable table);
+Type* translateArray(IR* target, Node* root, SymbolTable table, Oprand* place);
 
 void printIR(FILE* out, const IR* ir);
 IR* makeIR();

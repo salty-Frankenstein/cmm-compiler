@@ -325,7 +325,7 @@ Type* translateArray(IR* target, Node* root, SymbolTable table, Oprand* place) {
         && GET_CHILD(root, 0)->content.terminal->tag == ID) {
         char* varName = GET_TERMINAL(GET_CHILD(root, 0), reprS);
         // get the array base address
-        writeInst(target, makeBinaryInst(I_ADDR, place, makeVarOp(varName)));
+        writeInst(target, makeBinaryInst(I_ASSGN, place, makeVarOp(varName)));
         // lookup the table and return the type of the whole array
         SymbolTableNode* p;
         for (p = table; p != NULL; p = p->next) {
@@ -370,6 +370,7 @@ Type* translateArray(IR* target, Node* root, SymbolTable table, Oprand* place) {
 
 // optimization: for lit & id, just return the corresponding oprand, which saves one instruction
 // for the other cases, save the result to `place`, and return `NULL`
+// when `place` == NULL, only the side effects of the expression will be generated
 Oprand* translateExp(IR* target, Node* root, SymbolTable table, Oprand* place) {
     assert(root->tag == Exp);
     if (PATTERN3(root, Exp, _, Exp)) {  // binary
@@ -384,7 +385,9 @@ Oprand* translateExp(IR* target, Node* root, SymbolTable table, Oprand* place) {
                 char* v = GET_TERMINAL(token, reprS);
                 DO_TRANSLATE_EXP(target, exp2, table, t1);
                 writeInst(target, makeBinaryInst(I_ASSGN, makeVarOp(v), t1));
-                writeInst(target, makeBinaryInst(I_ASSGN, place, makeVarOp(v)));
+                if (place != NULL) {
+                    writeInst(target, makeBinaryInst(I_ASSGN, place, makeVarOp(v)));
+                }
             }
             // array case
             else if (PATTERN4(exp1, Exp, _, Exp, _)) {
@@ -396,7 +399,9 @@ Oprand* translateExp(IR* target, Node* root, SymbolTable table, Oprand* place) {
                 // then save
                 writeInst(target, makeBinaryInst(I_SAVE, addr, rhs));
                 // the expression value
-                writeInst(target, makeBinaryInst(I_ASSGN, place, rhs));
+                if (place != NULL) {
+                    writeInst(target, makeBinaryInst(I_ASSGN, place, rhs));
+                }
             }
             break;
         case PLUS: DO_TRANSLATE_ARITH(I_ADD); break;
@@ -415,7 +420,9 @@ Oprand* translateExp(IR* target, Node* root, SymbolTable table, Oprand* place) {
         case MINUS:
         {
             DO_TRANSLATE_EXP(target, GET_CHILD(root, 1), table, t1);
-            writeInst(target, makeTernaryInst(I_SUB, place, makeLitOp(0), t1));
+            if (place != NULL) {
+                writeInst(target, makeTernaryInst(I_SUB, place, makeLitOp(0), t1));
+            }
             break;
         }
         case NOT: goto cond_expr;
@@ -427,7 +434,9 @@ Oprand* translateExp(IR* target, Node* root, SymbolTable table, Oprand* place) {
         ArgList* args = translateArgs(target, GET_CHILD(root, 2), table);
         if (strcmp(fname, "write") == 0) {
             writeInst(target, makeUnaryInst(I_WRITE, args->argVal));
-            writeInst(target, makeBinaryInst(I_ASSGN, place, makeLitOp(0)));
+            if (place != NULL) {
+                writeInst(target, makeBinaryInst(I_ASSGN, place, makeLitOp(0)));
+            }
         }
         else {
             IRNode* p = target->tail;
@@ -435,25 +444,34 @@ Oprand* translateExp(IR* target, Node* root, SymbolTable table, Oprand* place) {
             for (; args != NULL; args = args->next) {
                 insertInst(target, p, makeUnaryInst(I_ARG, args->argVal));
             }
+            // a place is needed for a function call instruction
+            if (place == NULL) { place = newTempVar(); }
             writeInst(target, makeBinaryInst(I_CALL, place, makeLabelOp(fname)));
         }
     }
     else if (PATTERN3(root, _, _, _)) {      // ID()
         char* fname = GET_TERMINAL(GET_CHILD(root, 0), reprS);
         if (strcmp(fname, "read") == 0) {
+            // a place is needed here, to perform a side effect
+            if (place == NULL) { place = newTempVar(); }
             writeInst(target, makeUnaryInst(I_READ, place));
         }
         else {
+            // a place is needed here, to perform a side effect
+            if (place == NULL) { place = newTempVar(); }
             writeInst(target, makeBinaryInst(I_CALL, place, makeLabelOp(fname)));
         }
     }
     else if (PATTERN4(root, Exp, _, Exp, _)) {   // Exp[Exp]
         // right value here, the left-value case is handled in assign expr
         // first calculate the address
+        // TODO: when `place` is NULL, the addr is also redundant
         Oprand* addr = newTempVar();
         translateArray(target, root, table, addr);
         // then dereference
-        writeInst(target, makeBinaryInst(I_LOAD, place, addr));
+        if (place != NULL) {
+            writeInst(target, makeBinaryInst(I_LOAD, place, addr));
+        }
     }
     else if (PATTERN3(root, Exp, _, _)) {    // Exp.ID
         printf("record field is not available");
@@ -481,6 +499,8 @@ Oprand* translateExp(IR* target, Node* root, SymbolTable table, Oprand* place) {
 
 cond_expr:
     {
+        // TODO: how to eliminate the NULL `place` here?
+        if(place == NULL) { place = newTempVar(); }
         Oprand* l1 = newLabel();
         Oprand* l2 = newLabel();
         writeInst(target, makeBinaryInst(I_ASSGN, place, makeLitOp(0)));
@@ -553,9 +573,7 @@ otherwise:
 void translateStmt(IR* target, Node* root, SymbolTable table) {
     assert(root->tag == Stmt);
     if (PATTERN2(root, Exp, _)) {   // Exp;
-        Oprand* t = newTempVar();
-        translateExp(target, GET_CHILD(root, 0), table, t);
-        // TODO: the temp var can be eliminated
+        translateExp(target, GET_CHILD(root, 0), table, NULL);
         return;
     }
     else if (PATTERN(root, CompSt)) {
@@ -637,9 +655,16 @@ void translateDec(IR* target, Node* root, SymbolTable table) {
         // check array here
         NameTypePair* e = getVarEntry(GET_CHILD(root, 0), table);
         if (e->type->tag == ARRAY) {
+            // HACK: trick here
+            // in the semantics of cmm, with the name of an array, it always refers to an address
+            // However, in the IR, the name bound to a `DEC` instruction performs an extra dereference
+            // thus, we perform one more reference here, just to unify the oprations with arrays
+            // just behaves like `malloc`, instead of `declaration`
+            Oprand* dummyArr = newTempVar();
             char* name = e->name;
             int size = getElemSize(e->type) * e->type->content.array->size;
-            writeInst(target, makeBinaryInst(I_DEC, makeVarOp(name), makeLitOp(size)));
+            writeInst(target, makeBinaryInst(I_DEC, dummyArr, makeLitOp(size)));
+            writeInst(target, makeBinaryInst(I_ADDR, makeVarOp(name), dummyArr));
         }
     }
     else if (PATTERN3(root, VarDec, _, Exp)) {
