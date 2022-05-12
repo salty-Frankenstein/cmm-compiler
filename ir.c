@@ -284,16 +284,14 @@ void translateFuncParam(IR* target, Node* root, SymbolTable table) {
 ArgList* translateArgs(IR* target, Node* root, SymbolTable table) {
     assert(root->tag == Args);
     if (PATTERN(root, Exp)) {
-        Oprand* t1 = newTempVar();
-        translateExp(target, GET_CHILD(root, 0), table, t1);
+        DO_TRANSLATE_EXP(target, GET_CHILD(root, 0), table, t1);
         NEW(ArgList, res);
         res->argVal = t1;
         res->next = NULL;
         return res;
     }
     else if (PATTERN3(root, Exp, _, Args)) {
-        Oprand* t1 = newTempVar();
-        translateExp(target, GET_CHILD(root, 0), table, t1);
+        DO_TRANSLATE_EXP(target, GET_CHILD(root, 0), table, t1);
         NEW(ArgList, res);
         res->argVal = t1;
         res->next = translateArgs(target, GET_CHILD(root, 2), table);
@@ -346,13 +344,13 @@ Type* translateArray(IR* target, Node* root, SymbolTable table, Oprand* place) {
         Type* arrayType = translateArray(target, GET_CHILD(root, 0), table, t1);
         // get the element size of the current dimension, just a static value
         int size = getElemSize(arrayType);
-        Oprand* t2 = newTempVar();
         // calculate the index, save to $t2
-        translateExp(target, GET_CHILD(root, 2), table, t2);
+        DO_TRANSLATE_EXP(target, GET_CHILD(root, 2), table, t2);
+        Oprand* t3 = newTempVar();
         // multiply by the element size
-        writeInst(target, makeTernaryInst(I_MUL, t2, t2, makeLitOp(size)));
+        writeInst(target, makeTernaryInst(I_MUL, t3, t2, makeLitOp(size)));
         // then add on the offset of the current dimension
-        writeInst(target, makeTernaryInst(I_ADD, place, t1, t2));
+        writeInst(target, makeTernaryInst(I_ADD, place, t1, t3));
         return arrayType->content.array->type;  // return the remainder type
     }
     else {
@@ -364,14 +362,15 @@ Type* translateArray(IR* target, Node* root, SymbolTable table, Oprand* place) {
 #define DO_TRANSLATE_ARITH(tag) \
     do {\
         assert(tag == I_ADD || tag == I_SUB || tag == I_MUL || tag == I_DIV);   \
-        Oprand* t1 = newTempVar();  \
-        Oprand* t2 = newTempVar();  \
-        translateExp(target, exp1, table, t1);  \
-        translateExp(target, exp2, table, t2);  \
+        DO_TRANSLATE_EXP(target, exp1, table, t1);  \
+        DO_TRANSLATE_EXP(target, exp2, table, t2);  \
         writeInst(target, makeTernaryInst(tag, place, t1, t2));   \
     } while(0);
 
-void translateExp(IR* target, Node* root, SymbolTable table, Oprand* place) {
+
+// optimization: for lit & id, just return the corresponding oprand, which saves one instruction
+// for the other cases, save the result to `place`, and return `NULL`
+Oprand* translateExp(IR* target, Node* root, SymbolTable table, Oprand* place) {
     assert(root->tag == Exp);
     if (PATTERN3(root, Exp, _, Exp)) {  // binary
         Node* exp1 = GET_CHILD(root, 0);
@@ -383,8 +382,7 @@ void translateExp(IR* target, Node* root, SymbolTable table, Oprand* place) {
                 Node* token = GET_CHILD(exp1, 0);
                 assert(token->content.terminal->tag == ID);
                 char* v = GET_TERMINAL(token, reprS);
-                Oprand* t1 = newTempVar();
-                translateExp(target, exp2, table, t1);
+                DO_TRANSLATE_EXP(target, exp2, table, t1);
                 writeInst(target, makeBinaryInst(I_ASSGN, makeVarOp(v), t1));
                 writeInst(target, makeBinaryInst(I_ASSGN, place, makeVarOp(v)));
             }
@@ -394,8 +392,7 @@ void translateExp(IR* target, Node* root, SymbolTable table, Oprand* place) {
                 Oprand* addr = newTempVar();
                 translateArray(target, exp1, table, addr);
                 // then calculate the rhs
-                Oprand* rhs = newTempVar();
-                translateExp(target, exp2, table, rhs);
+                DO_TRANSLATE_EXP(target, exp2, table, rhs);
                 // then save
                 writeInst(target, makeBinaryInst(I_SAVE, addr, rhs));
                 // the expression value
@@ -411,15 +408,13 @@ void translateExp(IR* target, Node* root, SymbolTable table, Oprand* place) {
         }
     }
     else if (PATTERN3(root, _, Exp, _)) {   // (Exp)
-        translateExp(target, GET_CHILD(root, 1), table, place);
-        return;
+        return translateExp(target, GET_CHILD(root, 1), table, place);
     }
     else if (PATTERN2(root, _, Exp)) {  // -Exp & !Exp
         switch (GET_CHILD(root, 0)->content.terminal->tag) {
         case MINUS:
         {
-            Oprand* t1 = newTempVar();
-            translateExp(target, GET_CHILD(root, 1), table, t1);
+            DO_TRANSLATE_EXP(target, GET_CHILD(root, 1), table, t1);
             writeInst(target, makeTernaryInst(I_SUB, place, makeLitOp(0), t1));
             break;
         }
@@ -471,12 +466,10 @@ void translateExp(IR* target, Node* root, SymbolTable table, Oprand* place) {
         switch (token->content.terminal->tag) {
         case INT:
             i = GET_TERMINAL(token, intLit);
-            writeInst(target, makeBinaryInst(I_ASSGN, place, makeLitOp(i)));
-            break;
+            return makeLitOp(i);
         case ID:
             v = GET_TERMINAL(token, reprS);
-            writeInst(target, makeBinaryInst(I_ASSGN, place, makeVarOp(v)));
-            break;
+            return makeVarOp(v);
         case FLOAT:
             printf("float literal is not available");
             assert(0);
@@ -484,7 +477,7 @@ void translateExp(IR* target, Node* root, SymbolTable table, Oprand* place) {
         }
     }
     CATCH_ALL;
-    return;
+    return NULL;
 
 cond_expr:
     {
@@ -495,6 +488,7 @@ cond_expr:
         writeInst(target, makeUnaryInst(I_LABEL, l1));
         writeInst(target, makeBinaryInst(I_ASSGN, place, makeLitOp(1)));
         writeInst(target, makeUnaryInst(I_LABEL, l2));
+        return NULL;
     }
 }
 
@@ -509,10 +503,8 @@ void translateCond(IR* target, Node* root, Oprand* labelTrue, Oprand* labelFalse
         switch (op->content.terminal->tag) {
         case RELOP:
         {
-            Oprand* t1 = newTempVar();
-            Oprand* t2 = newTempVar();
-            translateExp(target, exp1, table, t1);
-            translateExp(target, exp2, table, t2);
+            DO_TRANSLATE_EXP(target, exp1, table, t1);
+            DO_TRANSLATE_EXP(target, exp2, table, t2);
             enum InstKind ik = getRelOp(GET_TERMINAL(op, relOp));
             writeInst(target, makeTernaryInst(ik, t1, t2, labelTrue));
             writeInst(target, makeUnaryInst(I_GOTO, labelFalse));
@@ -552,8 +544,7 @@ void translateCond(IR* target, Node* root, Oprand* labelTrue, Oprand* labelFalse
 
 otherwise:
     {
-        Oprand* t1 = newTempVar();
-        translateExp(target, root, table, t1);
+        DO_TRANSLATE_EXP(target, root, table, t1);
         writeInst(target, makeTernaryInst(I_NEGOTO, t1, makeLitOp(0), labelTrue));
         writeInst(target, makeUnaryInst(I_GOTO, labelFalse));
     }
@@ -572,8 +563,7 @@ void translateStmt(IR* target, Node* root, SymbolTable table) {
         return;
     }
     else if (PATTERN3(root, _, Exp, _)) {    // return Exp;
-        Oprand* t1 = newTempVar();
-        translateExp(target, GET_CHILD(root, 1), table, t1);
+        DO_TRANSLATE_EXP(target, GET_CHILD(root, 1), table, t1);
         writeInst(target, makeUnaryInst(I_RET, t1));
         return;
     }
@@ -656,8 +646,7 @@ void translateDec(IR* target, Node* root, SymbolTable table) {
         // initialize here
         NameTypePair* e = getVarEntry(GET_CHILD(root, 0), table);
         char* name = e->name;
-        Oprand* rhs = newTempVar();
-        translateExp(target, GET_CHILD(root, 2), table, rhs);
+        DO_TRANSLATE_EXP(target, GET_CHILD(root, 2), table, rhs);
         writeInst(target, makeBinaryInst(I_ASSGN, makeVarOp(name), rhs));
     }
     CATCH_ALL

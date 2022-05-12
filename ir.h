@@ -51,7 +51,7 @@ void translateExtDefList(IR* target, Node* root, SymbolTable table);
 void translateExtDef(IR* target, Node* root, SymbolTable table);
 void translateFuncParam(IR* target, Node* root, SymbolTable table);
 ArgList* translateArgs(IR* target, Node* root, SymbolTable table);
-void translateExp(IR* target, Node* root, SymbolTable table, Oprand* place);
+Oprand* translateExp(IR* target, Node* root, SymbolTable table, Oprand* place);
 void translateCond(IR* target, Node* root, Oprand* labelTrue, Oprand* labelFalse, SymbolTable table);
 void translateStmt(IR* target, Node* root, SymbolTable table);
 void translateCompSt(IR* target, Node* root, SymbolTable table);
@@ -60,5 +60,14 @@ void translateStmtList(IR* target, Node* root, SymbolTable table);
 void printIR(FILE* out, const IR* ir);
 IR* makeIR();
 IR* testIR();
+
+// use this macro instead of using `translateExp` directly
+// the result will be in `place`, note that it may not be a variable
+#define DO_TRANSLATE_EXP(target, root, table, place) \
+    Oprand* place = newTempVar(); \
+    do {\
+        Oprand* e = translateExp(target, root, table, place); \
+        place = e == NULL ? place : e; \
+    } while(0);
 
 #endif
