@@ -315,6 +315,10 @@ int getElemSize(Type* arrayT) {
     }
 }
 
+int getArraySize(Type* arrayT) {
+    return getElemSize(arrayT) * arrayT->content.array->size;
+}
+
 // quite special one, only works for `Exp -> ID | Exp[Exp]`
 // generates code that calculates the **address** of the array exp
 // returns the remainder dimensions' type of the for the current continuation
@@ -355,6 +359,22 @@ Type* translateArray(IR* target, Node* root, SymbolTable table, Oprand* place) {
     else {
         // there is no other way to form an array expression (?)
         assert(0);
+    }
+}
+
+// a helper function to copy an array to another
+// the loop has been flattened, for a better performance
+void copyArray(IR* target, Oprand* dst, int dstSize, Oprand* src, int srcSize) {
+    int i;
+    int mi = dstSize > srcSize ? srcSize : dstSize;
+    Oprand* t = newTempVar();
+    for (i = 0; i < mi / 4; i++) {
+        // *dst = *src; dst += 4; src += 4;
+        writeInst(target, makeBinaryInst(I_LOAD, t, src));
+        writeInst(target, makeBinaryInst(I_SAVE, dst, t));
+        // since `dst` and `src` are variables, there's no need to perform const-folding
+        writeInst(target, makeTernaryInst(I_ADD, dst, dst, makeLitOp(4)));
+        writeInst(target, makeTernaryInst(I_ADD, src, src, makeLitOp(4)));
     }
 }
 
@@ -414,32 +434,58 @@ Oprand* translateExp(IR* target, Node* root, SymbolTable table, Oprand* place) {
         Node* exp2 = GET_CHILD(root, 2);
         switch (GET_CHILD(root, 1)->content.terminal->tag) {
         case ASSIGNOP:
-            // variable case
-            if (PATTERN(exp1, _)) {
-                Node* token = GET_CHILD(exp1, 0);
-                assert(token->content.terminal->tag == ID);
-                char* v = GET_TERMINAL(token, reprS);
-                DO_TRANSLATE_EXP(target, exp2, table, t1);
-                writeInst(target, makeBinaryInst(I_ASSGN, makeVarOp(v), t1));
-                if (place != NULL) {
-                    writeInst(target, makeBinaryInst(I_ASSGN, place, makeVarOp(v)));
+        {
+            Type* exp1T = ExpHandler(exp1, table);
+            Type* exp2T = ExpHandler(exp2, table);
+            if (exp1T->tag == PRIMITIVE) {  // simple primitive case
+                // variable case
+                if (PATTERN(exp1, _)) {
+                    Node* token = GET_CHILD(exp1, 0);
+                    assert(token->content.terminal->tag == ID);
+                    char* v = GET_TERMINAL(token, reprS);
+                    DO_TRANSLATE_EXP(target, exp2, table, t1);
+                    writeInst(target, makeBinaryInst(I_ASSGN, makeVarOp(v), t1));
+                    if (place != NULL) {
+                        writeInst(target, makeBinaryInst(I_ASSGN, place, makeVarOp(v)));
+                    }
+                }
+                // array case
+                else if (PATTERN4(exp1, Exp, _, Exp, _)) {
+                    // first calculate the address
+                    Oprand* addr = newTempVar();
+                    translateArray(target, exp1, table, addr);
+                    // then calculate the rhs
+                    DO_TRANSLATE_EXP(target, exp2, table, rhs);
+                    // then save
+                    writeInst(target, makeBinaryInst(I_SAVE, addr, rhs));
+                    // the expression value
+                    if (place != NULL) {
+                        writeInst(target, makeBinaryInst(I_ASSGN, place, rhs));
+                    }
                 }
             }
-            // array case
-            else if (PATTERN4(exp1, Exp, _, Exp, _)) {
-                // first calculate the address
-                Oprand* addr = newTempVar();
-                translateArray(target, exp1, table, addr);
-                // then calculate the rhs
-                DO_TRANSLATE_EXP(target, exp2, table, rhs);
-                // then save
-                writeInst(target, makeBinaryInst(I_SAVE, addr, rhs));
-                // the expression value
-                if (place != NULL) {
-                    writeInst(target, makeBinaryInst(I_ASSGN, place, rhs));
-                }
+            else if (exp1T->tag == ARRAY) {  // array case
+                // first calculate the base address of the lhs
+                Oprand* addr1 = newTempVar();
+                translateArray(target, exp1, table, addr1);
+                int lhsSize = getArraySize(exp1T);
+                // and the rhs must be an array as well
+                // calculate its address
+                Oprand* addr2 = newTempVar();
+                translateArray(target, exp2, table, addr2);
+                int rhsSize = getArraySize(exp2T);
+                // then copy the rhs to lhs, until one of them reaches its end
+                copyArray(target, addr1, lhsSize, addr2, rhsSize);
+                // quite tricky here, the value of an array assignment is actually not defined
+                // for a UB, any value is acceptable
+                return makeLitOp(0);
+            }
+            else {
+                // no struct here
+                assert(0);
             }
             break;
+        }
         case PLUS:return translateArith(target, exp1, exp2, table, place, I_ADD);
         case MINUS:return translateArith(target, exp1, exp2, table, place, I_SUB);
         case STAR:return translateArith(target, exp1, exp2, table, place, I_MUL);
@@ -695,7 +741,7 @@ void translateDec(IR* target, Node* root, SymbolTable table) {
             // just behaves like `malloc`, instead of `declaration`
             Oprand* dummyArr = newTempVar();
             char* name = e->name;
-            int size = getElemSize(e->type) * e->type->content.array->size;
+            int size = getArraySize(e->type);
             writeInst(target, makeBinaryInst(I_DEC, dummyArr, makeLitOp(size)));
             writeInst(target, makeBinaryInst(I_ADDR, makeVarOp(name), dummyArr));
         }

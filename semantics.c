@@ -79,7 +79,7 @@ void arrayInfo(Type* array, enum PrimTypeTag* baseType, int* dimension) {
     }
     else {
         arrayInfo(array->content.array->type, baseType, dimension);
-        *dimension++;
+        (*dimension)++;
     }
 }
 
