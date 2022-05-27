@@ -302,7 +302,7 @@ int getElemSize(Type* arrayT) {
         Type* elem = arrayT->content.array->type;
         return getElemSize(elem) * elem->content.array->size;
     }
-    case FUNC: case RECORD: 
+    case FUNC: case RECORD:
         printf("function or struct as array elements is not supported\n");
         exit(0);
     default: assert(0);
@@ -543,9 +543,14 @@ Oprand* translateExp(IR* target, Node* root, SymbolTable table, Oprand* place) {
         // TODO: when `place` is NULL, the addr is also redundant
         Oprand* addr = newTempVar();
         translateArray(target, root, table, addr);
-        // then dereference
         if (place != NULL) {
-            writeInst(target, makeBinaryInst(I_LOAD, place, addr));
+            if (ExpHandler(root, table)->tag == PRIMITIVE) {
+                // if it is the last dimension, then dereference
+                writeInst(target, makeBinaryInst(I_LOAD, place, addr));
+            }
+            else {
+                writeInst(target, makeBinaryInst(I_ASSGN, place, addr));
+            }
         }
     }
     else if (PATTERN3(root, Exp, _, _)) {    // Exp.ID
