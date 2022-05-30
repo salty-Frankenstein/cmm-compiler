@@ -4,6 +4,7 @@
 #include "parser.h"
 #include "semantics.h"
 #include "ir.h"
+#include "codegen.h"
 
 extern FILE* yyin;
 
@@ -29,7 +30,8 @@ int main(int argc, char** argv) {
         if (!semanticsError) {
             IR* ir = makeIR();
             translateProgram(ir, root, t);
-            printIR(outFile, ir);
+            // printIR(outFile, ir);
+            generateCode(outFile, ir);
         }
     }
     fclose(f);
