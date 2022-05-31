@@ -3,7 +3,14 @@
 
 #include"ir.h"
 
-void generateInst(FILE* out, const Instruction* i);
+// the function variable offset table entry struct
+typedef struct NameOffsetPair {
+    char* name;
+    int offset;
+    bool isparam;
+} NameOffsetPair;
+
+void generateInst(FILE* out, const IRNode* i);
 void generateCode(FILE* out, const IR* ir);
 
 #endif
