@@ -1,6 +1,5 @@
 int fact(int m, int k) {
-  int z = 0;
-  if (m == z) {
+  if (m == 0) {
     return 1;
   }
   return fact(m-1, k) * m;

@@ -2,6 +2,9 @@
 #include<assert.h>
 #include<string.h>
 
+const char* t1 = "$t1";
+const char* t2 = "$t2";
+
 void printInst(FILE* out, const Instruction* i);
 
 // print the offset table for debugging
@@ -13,21 +16,38 @@ void printOffsetTable(const NameOffsetPair* table, int size) {
     }
 }
 
-// allocate registers for varibles
-// all the variable info is from the var-offset table
-char* getReg(Oprand* var) {
-    // printf("%d\n", var->tag);
-    // fflush(stdout);
-    assert(var->tag == OP_VAR);
-    // TODO: complete this function
-    static int no = 0;
-    char* res = (char*)malloc(NAME_SIZE);
-    sprintf(res, "$%s", var->content.name);
-    // sprintf(res, "$t%d", no);
-    no++;
-    return res;
-}
-
+/*
+    oldfp-> +-----------+
+            | ret addr  |
+            +-----------+
+            | auto vars |
+            +-----------+
+            | ...       |
+            +-----------+
+            | args      |
+            +-----------+
+            | old fp    |
+    $fp->   +-----------+
+            | ret addr  |
+    $fp-4-> +-----------+
+            | auto vars |
+    $sp->   +-----------+
+            | ...       |
+caller:
+    1. push args
+    2. push $fp
+    3. $fp <- $sp
+    4. push $ra
+    5. jump
+callee:
+    6. push auto vars 
+return:
+    7. $sp <- $fp
+    8. $ra <- 0($fp)
+    9. $fp <- 4($fp)
+    10.$sp <- $sp + 8 + 4 * arg num
+    11.jump
+*/
 // a helper function, to get the variable info from a defininition
 // the result's `name` field for the variable name, and `offset` for its size
 // when the input is not a definition, it returns { name = NULL, offset = 0 }
@@ -89,6 +109,7 @@ NameOffsetPair* makeFuncVarTable(const IRNode* begin, const IRNode* end, int* ou
     table = (NameOffsetPair*)malloc(len * sizeof(NameOffsetPair));
 
     bool firstVar = true;
+    int lastOffset;
     for (p = begin; p != end; p = p->next) {
         NameOffsetPair var_info = getDefVar(p->inst);
         if (var_info.name != NULL) {
@@ -118,13 +139,15 @@ NameOffsetPair* makeFuncVarTable(const IRNode* begin, const IRNode* end, int* ou
                 }
                 else {
                     if (firstVar) {
-                        table[*out_size].offset = var_info.offset;
+                        // set the start address of the variables
+                        table[*out_size].offset = -4;
                         firstVar = false;
                     }
                     else {
-                        table[*out_size].offset = var_info.offset
+                        table[*out_size].offset = lastOffset
                             + table[*out_size - 1].offset;
                     }
+                    lastOffset = var_info.offset;
                 }
                 (*out_size)++;
             }
@@ -145,61 +168,43 @@ IRNode* getFunctionEnd(const IRNode* begin) {
     return p;
 }
 
-// since literal values are not available in many instructions
-// preparations are needed
-void litHandler(FILE* out, const Instruction* i) {
-    switch (i->tag) {
-    case I_SUB:
-        if (i->addrs[1]->tag == OP_LIT) {
-            fprintf(out, "li $temp1, %d\n", i->addrs[1]->content.lit);
-            fprintf(out, "sub %s, $temp1, %s\n", getReg(i->addrs[0]), getReg(i->addrs[2]));
+NameOffsetPair getOffsetEntry(const NameOffsetPair* table, int tsize, const char* name) {
+    int i;
+    for (i = 0; i < tsize; i++) {
+        if (strcmp(table[i].name, name) == 0) {
+            return table[i];
         }
-        else {
-            assert(0);
-        }
-        break;
-    case I_MUL:
-        // note costant folding here, there is at most one Lit
-        if (i->addrs[1]->tag == OP_LIT) {
-            fprintf(out, "li $temp1, %d\n", i->addrs[1]->content.lit);
-            fprintf(out, "mul %s, $temp1, %s\n", getReg(i->addrs[0]), getReg(i->addrs[2]));
-        }
-        else if (i->addrs[2]->tag == OP_LIT) {
-            fprintf(out, "li $temp2, %d\n", i->addrs[2]->content.lit);
-            fprintf(out, "mul %s, $temp2, %s\n", getReg(i->addrs[0]), getReg(i->addrs[1]));
-        }
-        else {
-            assert(i->addrs[1]->tag == OP_VAR && i->addrs[2]->tag == OP_VAR);
-            fprintf(out, "mul %s, %s, %s\n", getReg(i->addrs[0]), getReg(i->addrs[1]), getReg(i->addrs[2]));
-        }
-        break;
-    case I_DIV:
-        if (i->addrs[1]->tag == OP_LIT && i->addrs[2]->tag == OP_LIT) {
-            fprintf(out, "li $temp1, %d\n", i->addrs[1]->content.lit);
-            fprintf(out, "li $temp2, %d\n", i->addrs[2]->content.lit);
-            fprintf(out, "div $temp1, $temp2\n");
-            fprintf(out, "mflo %s\n", getReg(i->addrs[0]));
-        }
-        else if (i->addrs[1]->tag == OP_LIT) {
-            fprintf(out, "li $temp1, %d\n", i->addrs[1]->content.lit);
-            fprintf(out, "div $temp1, %s\n", getReg(i->addrs[2]));
-            fprintf(out, "mflo %s\n", getReg(i->addrs[0]));
-        }
-        else if (i->addrs[2]->tag == OP_LIT) {
-            fprintf(out, "li $temp2, %d\n", i->addrs[2]->content.lit);
-            fprintf(out, "div %s, $temp2\n", getReg(i->addrs[1]));
-            fprintf(out, "mflo %s\n", getReg(i->addrs[0]));
-        }
-        else {
-            assert(i->addrs[1]->tag == OP_VAR && i->addrs[2]->tag == OP_VAR);
-            fprintf(out, "div %s, %s, %s\n", getReg(i->addrs[0]), getReg(i->addrs[1]), getReg(i->addrs[2]));
-        }
-        break;
-    default:
-        assert(0);
+    }
+    assert(0);
+}
+
+// generate code for var op & lit which needs to be loaded to a reg
+// and return the reg (string)
+// since instructions have at most 2 oprands
+// `pos` decides which reg to choose
+void oprandLoad(FILE* out, NameOffsetPair* table, int tsize, Oprand* op, const char* reg) {
+    assert(op->tag != OP_LABEL);
+    if (op->tag == OP_LIT) {
+        fprintf(out, "\tli %s, %d\n", reg, op->content.lit);
+    }
+    else {
+        NameOffsetPair e = getOffsetEntry(table, tsize, op->content.name);
+        // then load offset($fp) to the destination
+        fprintf(out, "\tlw %s, %d($fp)\n", reg, e.offset);
     }
 }
 
+void oprandSave(FILE* out, NameOffsetPair* table, int tsize, Oprand* op, const char* reg) {
+    assert(op->tag == OP_VAR);
+    NameOffsetPair e = getOffsetEntry(table, tsize, op->content.name);
+    fprintf(out, "\tsw %s, %d($fp)\n", reg, e.offset);
+}
+
+void generateGoto(FILE* out, NameOffsetPair* table, int t_size, const Instruction* i, char* inst) {
+    oprandLoad(out, table, t_size, i->addrs[0], t1);
+    oprandLoad(out, table, t_size, i->addrs[1], t2);
+    fprintf(out, "\t%s %s, %s, %s\n", inst, t1, t2, i->addrs[2]->content.label);
+}
 // this function is designed to be called in the instruction order only
 // calls out of order would lead to unexpected behaviors
 void generateInst(FILE* out, const IRNode* irn) {
@@ -220,101 +225,127 @@ void generateInst(FILE* out, const IRNode* irn) {
         if (table != NULL) { free(table); }
         table = makeFuncVarTable(irn, getFunctionEnd(irn), &tableSize);
         // TODO: init func here
+        fprintf(out, "\n%s:\n", i->addrs[0]->content.label);
         printOffsetTable(table, tableSize);
         break;
     case I_ASSGN:
         if (i->addrs[1]->tag == OP_LIT) {
-            fprintf(out, "li %s, %d\n", getReg(i->addrs[0]),
-                i->addrs[1]->content.lit);
+            // just save to the addr
+            NameOffsetPair e = getOffsetEntry(table, tableSize, i->addrs[0]->content.name);
+            fprintf(out, "\tsw #%d, %d($fp)\n", i->addrs[1]->content.lit, e.offset);
         }
         else {
             assert(i->addrs[1]->tag == OP_VAR);
-            fprintf(out, "move %s, %s\n", getReg(i->addrs[0]), getReg(i->addrs[1]));
+            oprandLoad(out, table, tableSize, i->addrs[1], t1);
+            oprandSave(out, table, tableSize, i->addrs[0], t1);
         }
         break;
     case I_ADD:
         // since constant folding is performed, then there would be at most 1 lit-op
         if (i->addrs[2]->tag == OP_LIT) {
-            fprintf(out, "addi %s, %s, %d\n", getReg(i->addrs[0]), getReg(i->addrs[1]), i->addrs[2]->content.lit);
+            oprandLoad(out, table, tableSize, i->addrs[1], t1);
+            fprintf(out, "\taddi %s, %s, %d\n", t1, t1, i->addrs[2]->content.lit);
+            oprandSave(out, table, tableSize, i->addrs[0], t1);
         }
         else {
             if (i->addrs[1]->tag == OP_LIT) {
-                fprintf(out, "addi %s, %s, %d\n", getReg(i->addrs[0]), getReg(i->addrs[2]), i->addrs[1]->content.lit);
+                oprandLoad(out, table, tableSize, i->addrs[2], t1);
+                fprintf(out, "\taddi %s, %s, %d\n", t1, t1, i->addrs[1]->content.lit);
+                oprandSave(out, table, tableSize, i->addrs[0], t1);
             }
             else {
-                fprintf(out, "add %s, %s, %s\n", getReg(i->addrs[0]), getReg(i->addrs[1]), getReg(i->addrs[2]));
+                oprandLoad(out, table, tableSize, i->addrs[1], t1);
+                oprandLoad(out, table, tableSize, i->addrs[2], t2);
+                fprintf(out, "\tadd %s, %s, %s\n", t1, t1, t2);
+                oprandSave(out, table, tableSize, i->addrs[0], t1);
             }
         }
         break;
     case I_SUB:
         if (i->addrs[2]->tag == OP_LIT) {
-            fprintf(out, "addi %s, %s, %d\n", getReg(i->addrs[0]), getReg(i->addrs[1]), -i->addrs[2]->content.lit);
+            oprandLoad(out, table, tableSize, i->addrs[1], t1);
+            fprintf(out, "\taddi %s, %s, %d\n", t1, t1, -i->addrs[2]->content.lit);
+            oprandSave(out, table, tableSize, i->addrs[0], t1);
         }
         else {
-            if (i->addrs[1]->tag == OP_LIT) {
-                litHandler(out, i);
-            }
-            else {
-                fprintf(out, "sub %s, %s, %s\n", getReg(i->addrs[0]), getReg(i->addrs[1]), getReg(i->addrs[2]));
-            }
+            oprandLoad(out, table, tableSize, i->addrs[1], t1);
+            oprandLoad(out, table, tableSize, i->addrs[2], t2);
+            fprintf(out, "\tsub %s, %s, %s\n", t1, t1, t2);
+            oprandSave(out, table, tableSize, i->addrs[0], t1);
         }
         break;
     case I_MUL:
-        litHandler(out, i);
+    {
+        oprandLoad(out, table, tableSize, i->addrs[1], t1);
+        oprandLoad(out, table, tableSize, i->addrs[2], t2);
+        fprintf(out, "\tmul %s, %s, %s\n", t1, t1, t2);
+        oprandSave(out, table, tableSize, i->addrs[0], t1);
         break;
+    }
     case I_DIV:
-        litHandler(out, i);
-        // fprintf(out, "div %s, %s\n", getReg(i->addrs[1]), getReg(i->addrs[2]));
-        // fprintf(out, "mflo %s\n", getReg(i->addrs[0]));
+    {
+        oprandLoad(out, table, tableSize, i->addrs[1], t1);
+        oprandLoad(out, table, tableSize, i->addrs[2], t2);
+        fprintf(out, "\tdiv %s, %s\n", t1, t2);
+        fprintf(out, "\tmflo %s\n", t1);
+        oprandSave(out, table, tableSize, i->addrs[0], t1);
         break;
-    case I_ADDR:    // TODO
+    }
+    case I_ADDR:
+    {
+        NameOffsetPair e = getOffsetEntry(table, tableSize, i->addrs[1]->content.name);
+        fprintf(out, "\taddi %s, $fp, %d\n", t1, e.offset);
+        oprandSave(out, table, tableSize, i->addrs[0], t1);
         break;
+    }
     case I_LOAD:
-        fprintf(out, "lw %s, 0(%s)\n", getReg(i->addrs[0]), getReg(i->addrs[1]));
+        oprandLoad(out, table, tableSize, i->addrs[1], t1);
+        fprintf(out, "\tlw %s, 0(%s)\n", t1, t1);
+        oprandSave(out, table, tableSize, i->addrs[0], t1);
         break;
     case I_SAVE:
-        fprintf(out, "sw %s, 0(%s)\n", getReg(i->addrs[0]), getReg(i->addrs[1]));
+        oprandLoad(out, table, tableSize, i->addrs[0], t1);
+        oprandLoad(out, table, tableSize, i->addrs[1], t2);
+        fprintf(out, "\tsw %s, 0(%s)\n", t2, t1);
         break;
     case I_GOTO:
-        fprintf(out, "j %s\n", i->addrs[0]->content.label);
+        fprintf(out, "\tj %s\n", i->addrs[0]->content.label);
         break;
     case I_EQGOTO:
-        fprintf(out, "beq %s, %s, %s\n", getReg(i->addrs[0]), getReg(i->addrs[1]), i->addrs[2]->content.label);
+        generateGoto(out, table, tableSize, i, "beq");
         break;
     case I_NEGOTO:
-        fprintf(out, "bne %s, %s, %s\n", getReg(i->addrs[0]), getReg(i->addrs[1]), i->addrs[2]->content.label);
+        generateGoto(out, table, tableSize, i, "bne");
         break;
     case I_LTGOTO:
-        fprintf(out, "blt %s, %s, %s\n", getReg(i->addrs[0]), getReg(i->addrs[1]), i->addrs[2]->content.label);
+        generateGoto(out, table, tableSize, i, "blt");
         break;
     case I_GTGOTO:
-        fprintf(out, "bgt %s, %s, %s\n", getReg(i->addrs[0]), getReg(i->addrs[1]), i->addrs[2]->content.label);
+        generateGoto(out, table, tableSize, i, "bgt");
         break;
     case I_LEGOTO:
-        fprintf(out, "ble %s, %s, %s\n", getReg(i->addrs[0]), getReg(i->addrs[1]), i->addrs[2]->content.label);
+        generateGoto(out, table, tableSize, i, "ble");
         break;
     case I_GEGOTO:
-        fprintf(out, "bge %s, %s, %s\n", getReg(i->addrs[0]), getReg(i->addrs[1]), i->addrs[2]->content.label);
+        generateGoto(out, table, tableSize, i, "bge");
         break;
     case I_RET:
-        if (i->addrs[0]->tag == OP_LIT) {
-            fprintf(out, "li $v0, %d\n", i->addrs[0]->content.lit);
-        }
-        else {
-            assert(i->addrs[0]->tag == OP_VAR);
-            fprintf(out, "move $v0, %s\n", getReg(i->addrs[0]));
-        }
-        fprintf(out, "jr $ra\n");
+        oprandLoad(out, table, tableSize, i->addrs[0], "$v0");
+        fprintf(out, "\tjr $ra\n");
         break;
     case I_DEC:
         // TODO
         break;
     case I_ARG:
-        // TODO
+        // step1: push args
+        // oprandLoad(out, table, tableSize, i->addrs[0], t1);
+        // fprintf(out, "\tsw %s, 0($sp)\n", t1);
+        // fprintf(out, "\taddi $sp $sp #4\n");
         break;
     case I_CALL:
-        fprintf(out, "jal %s\n", i->addrs[0]->content.label);
-        fprintf(out, "move %s, $v0\n", getReg(i->addrs[0]));
+        fprintf(out, "\tjal %s\n", i->addrs[0]->content.label);
+        fprintf(out, "\tmove %s, $v0\n", t1);
+        oprandSave(out, table, tableSize, i->addrs[0], t1);
         break;
     case I_PARAM:
         // TODO
