@@ -10,6 +10,12 @@ typedef struct NameOffsetPair {
     bool isparam;
 } NameOffsetPair;
 
+typedef struct OffsetTable {
+    NameOffsetPair* table;
+    int size;
+    int paramnum;   // number of parameter of the function
+} OffsetTable;
+
 void generateInst(FILE* out, const IRNode* i);
 void generateCode(FILE* out, const IR* ir);
 

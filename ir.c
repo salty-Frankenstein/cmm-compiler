@@ -36,7 +36,7 @@ Instruction* makeUnaryInst(enum InstKind tag, Oprand* op) {
     switch (tag) {
     case I_LABEL: case I_FUNC: case I_GOTO:
         assert(op->tag == OP_LABEL); break;
-    case I_RET: case I_ARG: case I_PARAM: case I_READ: case I_WRITE:
+    case I_RET: case I_PARAM: case I_READ: case I_WRITE:
         assert(isRVal(op)); break;
     default: assert(0);
     }
@@ -46,12 +46,15 @@ Instruction* makeUnaryInst(enum InstKind tag, Oprand* op) {
     return res;
 }
 
+// I_ARG is designed to be binary, the second op is a lit i
+// shows it is the i'th arg
 Instruction* makeBinaryInst(enum InstKind tag, Oprand* op1, Oprand* op2) {
     switch (tag) {
     case I_ASSGN: assert(isLVal(op1) && isRVal(op2)); break;
     case I_ADDR: assert(isLVal(op1) && isLVal(op2)); break;
     case I_LOAD: assert(isLVal(op1) && isRVal(op2)); break;
     case I_SAVE: assert(isRVal(op1) && isRVal(op2)); break;
+    case I_ARG: assert(isRVal(op1) && op2->tag == OP_LIT); break;
     case I_DEC:
         assert(op1->tag == OP_VAR);
         assert(op2->tag == OP_LIT && op2->content.lit % 4 == 0);
@@ -143,7 +146,10 @@ void printInst(FILE* out, const Instruction* i) {
         printStrOp1(out, i, "DEC ");
         fprintf(out, " %d ", GET_OP(i, 1)->content.lit);
         break;
-    case I_ARG: printStrOp1(out, i, "ARG "); break;
+    case I_ARG: 
+        printStrOp1(out, i, "ARG "); 
+        fprintf(out, ", no %d", i->addrs[1]->content.lit);
+        break;
     case I_CALL: printOp1StrOp2(out, i, " := CALL "); break;
     case I_PARAM: printStrOp1(out, i, "PARAM "); break;
     case I_READ: printStrOp1(out, i, "READ "); break;
@@ -515,9 +521,10 @@ Oprand* translateExp(IR* target, Node* root, SymbolTable table, Oprand* place) {
         }
         else {
             IRNode* p = target->tail;
+            int no;
             // in a reversed order
-            for (; args != NULL; args = args->next) {
-                insertInst(target, p, makeUnaryInst(I_ARG, args->argVal));
+            for (no = 0; args != NULL; args = args->next, no++) {
+                insertInst(target, p, makeBinaryInst(I_ARG, args->argVal, makeLitOp(no)));
             }
             // a place is needed for a function call instruction
             if (place == NULL) { place = newTempVar(); }
