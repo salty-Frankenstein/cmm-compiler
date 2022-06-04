@@ -209,7 +209,7 @@ Oprand* newTempVar() {
 Oprand* newLabel() {
     static int no = 0;
     char* res = (char*)malloc(NAME_SIZE);
-    sprintf(res, "label$%X", no);
+    sprintf(res, "label%X", no);
     no++;
     return makeLabelOp(res);
 }

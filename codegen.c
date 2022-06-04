@@ -15,6 +15,7 @@ void printOffsetTable(const OffsetTable table) {
     for (i = 0; i < table.size; i++) {
         printf("\tvar: %s, offset: %d\n", table.table[i].name, table.table[i].offset);
     }
+    printf("\tthe end offset is: %d\n", table.table[table.size].offset);
 }
 
 /*
@@ -25,8 +26,10 @@ void printOffsetTable(const OffsetTable table) {
             +-----------+
             | ...       |
             +-----------+
-            | args      |
-            +-----------+
+            | argn...   |
+    $fp+8-> +-----------+
+            | arg1      |
+    $fp+4-> +-----------+
             | old fp    |
     $fp->   +-----------+
             | ret addr  |
@@ -44,10 +47,11 @@ callee:
     6. push auto vars
 return:
     7. $sp <- $fp
-    8. $ra <- 0($fp)
-    9. $fp <- 4($fp)
-    10.$sp <- $sp + 8 + 4 * arg num
-    11.jump
+    8. $fp <- 4($fp)
+    9. jump
+after return:
+    10. $ra <- 0($sp)
+    11. $sp <- $sp + 4 * (arg num + 1)
 */
 // a helper function, to get the variable info from a defininition
 // the result's `name` field for the variable name, and `offset` for its size
@@ -109,7 +113,7 @@ OffsetTable makeFuncVarTable(const IRNode* begin, const IRNode* end) {
     table = (NameOffsetPair*)malloc(len * sizeof(NameOffsetPair));
 
     bool firstVar = true;
-    int lastOffset;
+    int lastOffset = 0;
     for (p = begin; p != end; p = p->next) {
         NameOffsetPair var_info = getDefVar(p->inst);
         if (var_info.name != NULL) {
@@ -130,10 +134,11 @@ OffsetTable makeFuncVarTable(const IRNode* begin, const IRNode* end) {
                 // params' offsets are positive, and variables' are negative
                 if (var_info.isparam) {
                     if (size == 0) {
-                        table[size].offset = var_info.offset;
+                        // set the start address of the parameters
+                        table[size].offset = 8;
                     }
                     else {
-                        table[size].offset = var_info.offset
+                        table[size].offset = lastOffset
                             + table[size - 1].offset;
                     }
                     paramnum++;
@@ -148,11 +153,21 @@ OffsetTable makeFuncVarTable(const IRNode* begin, const IRNode* end) {
                         table[size].offset = lastOffset
                             + table[size - 1].offset;
                     }
-                    lastOffset = var_info.offset;
                 }
+                lastOffset = var_info.offset;
                 size++;
             }
         }
+    }
+
+    // HACK: the last one is a dummy entry with name=NULL, 
+    // and offset=the end of all local vars, for $sp initialization
+    table[size].name = NULL;
+    if (size == 0) {
+        table[size].offset = 0;
+    }
+    else {
+        table[size].offset = lastOffset + table[size - 1].offset;
     }
 
     // then all the variables are collected, the no replicated
@@ -160,6 +175,7 @@ OffsetTable makeFuncVarTable(const IRNode* begin, const IRNode* end) {
     res.table = table;
     res.size = size;
     res.paramnum = paramnum;
+    res.ismain = strcmp(begin->inst->addrs[0]->content.label, "main") == 0;
     return res;
 }
 
@@ -210,6 +226,13 @@ void generateGoto(FILE* out, const OffsetTable table, const Instruction* i, char
     oprandLoad(out, table, i->addrs[1], t2);
     fprintf(out, "\t%s %s, %s, %s\n", inst, t1, t2, i->addrs[2]->content.label);
 }
+
+// the ad hoc code for read write functions
+void initSyscall(FILE* out) {
+    fprintf(out, "read:\n\tli $v0, 4\n\tla $a0, _prompt\n\tsyscall\n\tli $v0, 5\n\tsyscall\n\tjr $ra\n");
+    fprintf(out, "write:\n\tli $v0, 1\n\tsyscall\n\tli $v0, 4\n\tla $a0, _ret\n\tsyscall\n\tmove $v0, $0\n\tjr $ra\n");
+}
+
 // this function is designed to be called in the instruction order only
 // calls out of order would lead to unexpected behaviors
 void generateInst(FILE* out, const IRNode* irn) {
@@ -232,19 +255,19 @@ void generateInst(FILE* out, const IRNode* irn) {
         table = makeFuncVarTable(irn, getFunctionEnd(irn));
         // TODO: init func here
         fprintf(out, "\n%s:\n", i->addrs[0]->content.label);
+        if (table.ismain) {
+            // HACK: $fp initialization is needed
+            // since the ret addr is not needed for main, 
+            // we can cancel this by adding the offset back to $fp
+            fprintf(out, "\taddi $fp, $sp, %d\n", 4);
+        }
+        // step 6: push auto vars
+        fprintf(out, "\taddi $sp, $fp, %d\n", table.table[table.size].offset);
         printOffsetTable(table);
         break;
     case I_ASSGN:
-        if (i->addrs[1]->tag == OP_LIT) {
-            // just save to the addr
-            NameOffsetPair e = getOffsetEntry(table, i->addrs[0]->content.name);
-            fprintf(out, "\tsw #%d, %d($fp)\n", i->addrs[1]->content.lit, e.offset);
-        }
-        else {
-            assert(i->addrs[1]->tag == OP_VAR);
-            oprandLoad(out, table, i->addrs[1], t1);
-            oprandSave(out, table, i->addrs[0], t1);
-        }
+        oprandLoad(out, table, i->addrs[1], t1);
+        oprandSave(out, table, i->addrs[0], t1);
         break;
     case I_ADD:
         // since constant folding is performed, then there would be at most 1 lit-op
@@ -336,31 +359,64 @@ void generateInst(FILE* out, const IRNode* irn) {
         generateGoto(out, table, i, "bge");
         break;
     case I_RET:
-        oprandLoad(out, table, i->addrs[0], "$v0");
-        fprintf(out, "\tjr $ra\n");
+        if (table.ismain) {
+            fprintf(out, "\tmove $v0, $0\n\tjr $ra\n");
+        }
+        else {
+            // step 7: $sp <- $fp
+            fprintf(out, "\tmove $sp, $fp\n");
+            // note that load is depends on $fp
+            oprandLoad(out, table, i->addrs[0], "$v0");
+            // step 8: recover $fp
+            fprintf(out, "\tlw $fp, 4($fp)\n");
+            // step 9: jump
+            fprintf(out, "\tjr $ra\n");
+        }
         break;
     case I_DEC:
         // TODO
         break;
     case I_ARG:
-        // step1: push args
-        // oprandLoad(out, table, tableSize, i->addrs[0], t1);
-        // fprintf(out, "\tsw %s, 0($sp)\n", t1);
-        // fprintf(out, "\taddi $sp $sp #4\n");
+        // step1: push args, but leave $sp unset
+        // sw arg_i, ((i+1-n)*4)($sp)
+    {
+        int offset_to_sp = (i->addrs[1]->content.lit + 1 - table.paramnum) * 4;
+        oprandLoad(out, table, i->addrs[0], t1);
+        fprintf(out, "\tsw %s, %d($sp)\n", t1, offset_to_sp);
         break;
+    }
     case I_CALL:
-        fprintf(out, "\tjal %s\n", i->addrs[0]->content.label);
+        // step1 cont.: set $sp <- $sp - 4*-(n+1), for params & old fp
+        fprintf(out, "\taddi $sp, $sp, %d\n", 4 * -(table.paramnum + 1));
+        // step2: push $fp
+        fprintf(out, "\tsw $fp, 4($sp)\n");
+        // step3: $fp <- $sp
+        fprintf(out, "\tmove $fp, $sp\n");
+        // step4: push $ra
+        fprintf(out, "\tsw $ra, 0($fp)\n");
+        fprintf(out, "\taddi $sp, $sp, -4\n");
+        // step5: jump
+        fprintf(out, "\tjal %s\n", i->addrs[1]->content.label);
+        // step 10: recover $ra
+        fprintf(out, "\tlw $ra, 0($sp)\n");
+        // step 11: pop old fp & args
+        fprintf(out, "\taddi $sp, $sp, %d\n", 4 * (table.paramnum + 1));
         fprintf(out, "\tmove %s, $v0\n", t1);
         oprandSave(out, table, i->addrs[0], t1);
         break;
     case I_PARAM:
         // TODO
         break;
+        // the implementation for read & write is quite ad hoc
     case I_READ:
-        // TODO
+        fprintf(out, "\taddi $sp, $sp, -4\n\tsw $ra, 0($sp)\n\tjal read\n"
+            "\tlw $ra, 0($sp)\n\taddi $sp, $sp, 4\n");
+        oprandSave(out, table, i->addrs[0], "$v0");
         break;
     case I_WRITE:
-        // TODO
+        oprandLoad(out, table, i->addrs[0], "$a0");
+        fprintf(out, "\taddi $sp, $sp, -4\n\tsw $ra, 0($sp)\n\tjal write\n"
+            "\tlw $ra, 0($sp)\n\taddi $sp, $sp, 4\n");
         break;
     default:
         break;
@@ -369,8 +425,10 @@ void generateInst(FILE* out, const IRNode* irn) {
 
 void generateCode(FILE* out, const IR* ir) {
     // template codes
-    fprintf(out, ".globl main\n");
-    fprintf(out, ".text\n");
+    fprintf(out, ".data\n_prompt: .asciiz \"Enter an integer:\"\n");
+    fprintf(out, "_ret: .asciiz \"\\n\"\n");
+    fprintf(out, ".globl main\n.text\n");
+    initSyscall(out);
 
     IRNode* i;
     // skip the first dummy node

@@ -14,6 +14,7 @@ typedef struct OffsetTable {
     NameOffsetPair* table;
     int size;
     int paramnum;   // number of parameter of the function
+    bool ismain;
 } OffsetTable;
 
 void generateInst(FILE* out, const IRNode* i);
