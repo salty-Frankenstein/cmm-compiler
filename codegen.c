@@ -260,7 +260,7 @@ void generateInst(FILE* out, const IRNode* irn) {
         if (is_first) { is_first = false; }
         else { free(table.table); }
         table = makeFuncVarTable(irn, getFunctionEnd(irn));
-        // TODO: init func here
+        // init func here
         fprintf(out, "\n%s:\n", i->addrs[0]->content.label);
         if (table.ismain) {
             // HACK: $fp initialization is needed
@@ -270,7 +270,7 @@ void generateInst(FILE* out, const IRNode* irn) {
         }
         // step 6: push auto vars
         fprintf(out, "\taddi $sp, $fp, %d\n", table.table[table.size].offset);
-        printOffsetTable(table);
+        // printOffsetTable(table);
         break;
     case I_ASSGN:
         oprandLoad(out, table, i->addrs[1], t1);
@@ -381,7 +381,7 @@ void generateInst(FILE* out, const IRNode* irn) {
         }
         break;
     case I_DEC:
-        // TODO
+        // do nothing
         break;
     case I_ARG:
         // step1: push args, but leave $sp unset
@@ -412,7 +412,7 @@ void generateInst(FILE* out, const IRNode* irn) {
         oprandSave(out, table, i->addrs[0], t1);
         break;
     case I_PARAM:
-        // TODO
+        // do nothing
         break;
         // the implementation for read & write is quite ad hoc
     case I_READ:
@@ -440,8 +440,8 @@ void generateCode(FILE* out, const IR* ir) {
     IRNode* i;
     // skip the first dummy node
     for (i = ir->head->next; i != NULL; i = i->next) {
-        printInst(stdout, i->inst);
-        printf("\n");
+        // printInst(stdout, i->inst);
+        // printf("\n");
         generateInst(out, i);
     }
 }
