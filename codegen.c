@@ -153,6 +153,13 @@ OffsetTable makeFuncVarTable(const IRNode* begin, const IRNode* end) {
                         table[size].offset = lastOffset
                             + table[size - 1].offset;
                     }
+                    // HACK: note that the stack grows to the lower address
+                    // but arrays grows to the higher
+                    // here is a hack to make array var point to it's first element
+                    // the adjustment has to be done after the next offset is set
+                    if (-lastOffset > 4) { // the last entry is an array
+                        table[size-1].offset = table[size].offset + 4;
+                    }
                 }
                 lastOffset = var_info.offset;
                 size++;

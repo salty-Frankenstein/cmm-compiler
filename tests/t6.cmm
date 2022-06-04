@@ -1,12 +1,17 @@
-int fib(int i) {
-  if(i == 1 || i == 0) {
-    return 1;
-  }
-  return fib(i-1) + fib(i-2);
-}
-
 int main() {
-  int n = read();
-  write(fib(n));
+  int i_cnt = 0;
+  int len = 10;
+  int arr[10];
+  write(len);
+  write(len);
+
+  i_cnt = 0;
+  while (i_cnt < len) {
+    arr[i_cnt] = 0;
+    i_cnt = i_cnt + 1;
+  }
+  
+  write(len);
+
   return 0;
 }
